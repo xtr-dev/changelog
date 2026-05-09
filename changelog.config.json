@@ -1,0 +1,12 @@
+{
+  "bumpMode": "commit-count",
+  "output": {
+    "versionsJson": {
+      "path": "changelog/versions.json",
+      "archivePath": "changelog/archive.json",
+      "archiveAfter": 10
+    },
+    "markdown": { "path": "CHANGELOG.md", "preamble": "" },
+    "packageJson": { "path": "package.json" }
+  }
+}

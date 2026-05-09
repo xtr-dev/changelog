@@ -1,0 +1,62 @@
+{
+  "name": "@xtr-dev/changelog",
+  "version": "0.0.0",
+  "description": "Conventional-commits-driven release tool. Every push to your release branch becomes a version bump and a changelog entry.",
+  "keywords": [
+    "changelog",
+    "conventional-commits",
+    "release",
+    "semver",
+    "versioning"
+  ],
+  "license": "MIT",
+  "author": "xtr-dev",
+  "homepage": "https://github.com/xtr-dev/changelog#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xtr-dev/changelog.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xtr-dev/changelog/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "xtr-changelog": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "action.yml",
+    "schema",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

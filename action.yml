@@ -1,0 +1,121 @@
+name: 'xtr-changelog'
+description: 'Conventional-commits-driven release: bump version, update changelog, commit, tag, push.'
+author: 'xtr-dev'
+branding:
+  icon: 'tag'
+  color: 'purple'
+
+inputs:
+  node-version:
+    description: 'Node.js version to use.'
+    required: false
+    default: '20'
+  cwd:
+    description: 'Working directory.'
+    required: false
+    default: '.'
+  package-version:
+    description: 'Version of @xtr-dev/changelog to install. Use "local" to use the workspace install.'
+    required: false
+    default: 'latest'
+  commit:
+    description: 'Create a release commit (true/false).'
+    required: false
+    default: 'true'
+  tag:
+    description: 'Create an annotated git tag (true/false).'
+    required: false
+    default: 'true'
+  push:
+    description: 'Push the commit and tag (true/false).'
+    required: false
+    default: 'true'
+  remote:
+    description: 'Remote to push to.'
+    required: false
+    default: 'origin'
+  branch:
+    description: 'Branch to push (default: current).'
+    required: false
+    default: ''
+  message:
+    description: 'Commit message template. {version} is substituted.'
+    required: false
+    default: 'chore(release): v{version} [skip ci]'
+  git-user-name:
+    description: 'Git committer name.'
+    required: false
+    default: 'github-actions[bot]'
+  git-user-email:
+    description: 'Git committer email.'
+    required: false
+    default: '41898282+github-actions[bot]@users.noreply.github.com'
+
+outputs:
+  released:
+    description: '"true" if a release was cut, otherwise "false".'
+    value: ${{ steps.run.outputs.released }}
+  version:
+    description: 'The new version (or previous version if no release).'
+    value: ${{ steps.run.outputs.version }}
+  previous-version:
+    description: 'The previous version.'
+    value: ${{ steps.run.outputs.previous-version }}
+  changes-json:
+    description: 'The new entry as JSON, or empty string if no release.'
+    value: ${{ steps.run.outputs.changes-json }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name '${{ inputs.git-user-name }}'
+        git config user.email '${{ inputs.git-user-email }}'
+      working-directory: ${{ inputs.cwd }}
+
+    - name: Install xtr-changelog
+      shell: bash
+      run: |
+        if [ "${{ inputs.package-version }}" = "local" ]; then
+          echo "Using local install."
+        else
+          npm i -g "@xtr-dev/changelog@${{ inputs.package-version }}"
+        fi
+
+    - name: Run release
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      run: |
+        set -euo pipefail
+        FLAGS="release --execute --json"
+        if [ "${{ inputs.commit }}" = "true" ]; then FLAGS="$FLAGS --commit"; fi
+        if [ "${{ inputs.tag }}" = "true" ]; then FLAGS="$FLAGS --tag"; fi
+        if [ "${{ inputs.push }}" = "true" ]; then FLAGS="$FLAGS --push"; fi
+        FLAGS="$FLAGS --remote ${{ inputs.remote }}"
+        if [ -n "${{ inputs.branch }}" ]; then FLAGS="$FLAGS --branch ${{ inputs.branch }}"; fi
+        FLAGS="$FLAGS --message '${{ inputs.message }}'"
+
+        OUT=$(eval xtr-changelog $FLAGS)
+        echo "$OUT"
+
+        RELEASED=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.released?'true':'false')" "$OUT")
+        VERSION=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.version||'')" "$OUT")
+        PREV=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.previousVersion||'')" "$OUT")
+        ENTRY=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.entry?JSON.stringify(j.entry):'')" "$OUT")
+
+        {
+          echo "released=$RELEASED"
+          echo "version=$VERSION"
+          echo "previous-version=$PREV"
+          echo "changes-json<<__EOF__"
+          echo "$ENTRY"
+          echo "__EOF__"
+        } >> "$GITHUB_OUTPUT"

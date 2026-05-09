@@ -39,18 +39,19 @@ npx xtr-changelog preview
 You'll see something like:
 
 ```
-Next release: 0.1.0 (minor)
-Previous: 0.0.0
+▸ next release  0.0.0 → 0.1.0 (minor)
 
-  features (1)
-    - api: add /healthz endpoint (a1b2c3d)
-  fixes (1)
-    - cli: handle empty input (e4f5a6b)
-  other (1)
-    - add README example (7c8d9e0)
+  Features (1)
+    • api: add /healthz endpoint (a1b2c3d)
+
+  Fixes (1)
+    • cli: handle empty input (e4f5a6b)
+
+  Other (1)
+    • add README example (7c8d9e0)
 ```
 
-Nothing has been written yet — `preview` is read-only.
+(Colorized in a real terminal — green/cyan/red headings, dim hashes. Set `NO_COLOR=1` or pass `--no-color` for plain output.) Nothing has been written yet — `preview` is read-only.
 
 ### 5. Cut the release
 
@@ -118,6 +119,7 @@ Commands
 Common options
   --cwd <path>                Working directory
   --json                      Emit JSON
+  --no-color                  Disable colored output
 
 Release options
   --execute                   Actually write files

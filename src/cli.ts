@@ -11,6 +11,7 @@ import {
   push as gitPush,
   stageAndCommit,
 } from './git.js'
+import { c, colorGroup, colorLevel, setColor, sym } from './pretty.js'
 import { preview as runPreview, release as runRelease } from './release.js'
 
 interface ParsedArgs {
@@ -51,38 +52,46 @@ function parseArgs(args: string[]): ParsedArgs {
   return { command, flags, positionals }
 }
 
-const HELP = `xtr-changelog — conventional-commits-driven releases
-
-Usage:
-  xtr-changelog <command> [options]
-
-Commands:
-  preview                     Show what the next release would contain (no writes)
-  release                     Apply the release
-  unreleased                  Print the would-be next entry as JSON
-  init                        Scaffold config and changelog/ directory
-  help                        Show this help
-
-Common options:
-  --cwd <path>                Working directory (default: process.cwd)
-  --json                      Emit JSON instead of human-readable text
-
-Release options:
-  --execute                   Actually write files (default: dry-run)
-  --commit                    Create a release commit (implies --execute)
-  --tag                       Create an annotated tag (implies --execute)
-  --push                      Push commit + tag (implies --execute, --commit, --tag)
-  --remote <name>             Remote to push to (default: origin)
-  --branch <name>             Branch to push (default: current branch)
-  --message <tpl>             Commit message template; {version} is substituted
-
-Exit codes:
-  0  success (released or nothing to do)
-  1  error
-`
+function helpText(): string {
+  const h = (s: string) => c.bold(c.cyan(s))
+  const cmd = (s: string) => c.green(s)
+  const flag = (s: string) => c.yellow(s)
+  return [
+    `${c.bold('xtr-changelog')} ${c.dim('—')} conventional-commits-driven releases`,
+    '',
+    h('Usage'),
+    `  xtr-changelog ${cmd('<command>')} ${flag('[options]')}`,
+    '',
+    h('Commands'),
+    `  ${cmd('preview')}                     Show what the next release would contain (no writes)`,
+    `  ${cmd('release')}                     Apply the release`,
+    `  ${cmd('unreleased')}                  Print the would-be next entry as JSON`,
+    `  ${cmd('init')}                        Scaffold config`,
+    `  ${cmd('help')}                        Show this help`,
+    '',
+    h('Common options'),
+    `  ${flag('--cwd')} <path>                Working directory (default: process.cwd)`,
+    `  ${flag('--json')}                      Emit JSON instead of human-readable text`,
+    `  ${flag('--no-color')}                  Disable colored output`,
+    '',
+    h('Release options'),
+    `  ${flag('--execute')}                   Actually write files (default: dry-run)`,
+    `  ${flag('--commit')}                    Create a release commit (implies --execute)`,
+    `  ${flag('--tag')}                       Create an annotated tag (implies --execute)`,
+    `  ${flag('--push')}                      Push commit + tag (implies --execute, --commit, --tag)`,
+    `  ${flag('--remote')} <name>             Remote to push to (default: origin)`,
+    `  ${flag('--branch')} <name>             Branch to push (default: current branch)`,
+    `  ${flag('--message')} <tpl>             Commit message template; {version} is substituted`,
+    '',
+    h('Exit codes'),
+    `  ${c.green('0')}  success (released or nothing to do)`,
+    `  ${c.red('1')}  error`,
+    '',
+  ].join('\n')
+}
 
 function fail(msg: string, code = 1): never {
-  stderr.write(`xtr-changelog: ${msg}\n`)
+  stderr.write(`${c.red(sym.cross)} ${c.bold('xtr-changelog')}: ${msg}\n`)
   exit(code)
 }
 
@@ -94,8 +103,14 @@ async function main(): Promise<void> {
   const json = parsed.flags.json === true
   const command = parsed.command
 
+  // Color discipline: JSON output and --no-color always disable.
+  // Beyond that, defer to the TTY/NO_COLOR/FORCE_COLOR detection in pretty.ts.
+  if (json || parsed.flags['no-color'] === true) {
+    setColor(false)
+  }
+
   if (command === 'help' || command === '--help' || command === '-h') {
-    stdout.write(HELP)
+    stdout.write(helpText())
     return
   }
 
@@ -141,7 +156,7 @@ async function main(): Promise<void> {
       if (json) {
         stdout.write(JSON.stringify(result, null, 2) + '\n')
       } else {
-        stdout.write('Dry run (pass --execute to write files).\n\n')
+        stdout.write(c.dim(`${sym.arrow} dry run — pass `) + c.yellow('--execute') + c.dim(' to write files\n\n'))
         printHumanPreview(result)
       }
       return
@@ -154,7 +169,7 @@ async function main(): Promise<void> {
     const result = await runRelease({ cwd, config })
     if (!result.released || !result.entry) {
       if (json) stdout.write(JSON.stringify(result, null, 2) + '\n')
-      else stdout.write('Nothing to release.\n')
+      else stdout.write(`${c.dim(sym.arrow)} ${c.dim('nothing to release')}\n`)
       return
     }
 
@@ -183,8 +198,7 @@ async function main(): Promise<void> {
     if (json) {
       stdout.write(JSON.stringify(result, null, 2) + '\n')
     } else {
-      stdout.write(`Released ${result.version} (was ${result.previousVersion}, ${result.bumpLevel})\n`)
-      for (const f of result.filesWritten) stdout.write(`  wrote ${f}\n`)
+      printReleaseSuccess(result, { committed: wantCommit, tagged: wantTag, pushed: wantPush, tagPrefix: config.tagPrefix })
     }
     return
   }
@@ -194,22 +208,47 @@ async function main(): Promise<void> {
 
 function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void {
   if (!result.released || !result.entry) {
-    stdout.write(`No release. Current version: ${result.previousVersion}\n`)
+    stdout.write(`${c.dim(sym.arrow)} ${c.dim('no release')} ${c.gray('— current version')} ${c.bold(result.previousVersion)}\n`)
     if (result.commits.length > 0) {
-      stdout.write(`(${result.commits.length} commits scanned, none triggered a bump)\n`)
+      stdout.write(c.dim(`  ${result.commits.length} commits scanned, none triggered a bump\n`))
     }
     return
   }
-  stdout.write(`Next release: ${result.version} (${result.bumpLevel})\n`)
-  stdout.write(`Previous: ${result.previousVersion}\n\n`)
+  const arrow = c.dim('→')
+  stdout.write(
+    `${c.bold(c.cyan(sym.arrow + ' next release'))}  ` +
+      `${c.dim(result.previousVersion)} ${arrow} ${c.bold(c.cyan(result.version))} ` +
+      `${c.gray('(')}${colorLevel(result.bumpLevel)}${c.gray(')')}\n\n`,
+  )
   for (const [key, items] of Object.entries(result.entry.groups)) {
     if (!items || items.length === 0) continue
-    stdout.write(`  ${key} (${items.length})\n`)
-    for (const c of items) {
-      const scope = c.scope ? `${c.scope}: ` : ''
-      stdout.write(`    - ${scope}${c.description} (${c.commit})\n`)
+    stdout.write(`  ${colorGroup(key)} ${c.dim(`(${items.length})`)}\n`)
+    for (const item of items) {
+      const scope = item.scope ? c.magenta(item.scope) + c.dim(': ') : ''
+      const breaking = item.breaking ? ` ${c.red(sym.warn)}` : ''
+      const hash = c.dim(`(${item.commit})`)
+      stdout.write(`    ${c.dim(sym.bullet)} ${scope}${item.description}${breaking} ${hash}\n`)
     }
+    stdout.write('\n')
   }
+}
+
+function printReleaseSuccess(
+  result: Awaited<ReturnType<typeof runRelease>>,
+  opts: { committed: boolean; tagged: boolean; pushed: boolean; tagPrefix: string },
+): void {
+  const arrow = c.dim('→')
+  stdout.write(
+    `${c.green(sym.check)} ${c.bold('released')} ` +
+      `${c.dim(result.previousVersion)} ${arrow} ${c.bold(c.green(result.version))} ` +
+      `${c.gray('(')}${colorLevel(result.bumpLevel)}${c.gray(')')}\n`,
+  )
+  for (const f of result.filesWritten) {
+    stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('wrote')} ${f}\n`)
+  }
+  if (opts.committed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('commit')}\n`)
+  if (opts.tagged) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('tag')} ${c.cyan(opts.tagPrefix + result.version)}\n`)
+  if (opts.pushed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('pushed')}\n`)
 }
 
 async function cmdInit(cwd: string): Promise<void> {
@@ -230,7 +269,7 @@ async function cmdInit(cwd: string): Promise<void> {
     },
   }
   await writeFile(cfgPath, JSON.stringify(cfg, null, 2) + '\n', 'utf8')
-  stdout.write(`Wrote ${cfgPath}\n`)
+  stdout.write(`${c.green(sym.check)} ${c.dim('wrote')} ${cfgPath}\n`)
 }
 
 main().catch((err: unknown) => {

@@ -33,7 +33,7 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "xtr-changelog": "./dist/cli.js"
+    "xtr-changelog": "dist/cli.js"
   },
   "files": [
     "dist",

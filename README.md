@@ -1,5 +1,9 @@
 # @xtr-dev/changelog
 
+[![npm version](https://img.shields.io/npm/v/@xtr-dev/changelog.svg)](https://www.npmjs.com/package/@xtr-dev/changelog)
+[![npm downloads](https://img.shields.io/npm/dm/@xtr-dev/changelog.svg)](https://www.npmjs.com/package/@xtr-dev/changelog)
+[![license](https://img.shields.io/npm/l/@xtr-dev/changelog.svg)](https://github.com/xtr-dev/changelog/blob/main/LICENSE)
+
 Conventional-commits-driven release tool. Every push to your release branch becomes a version bump and a changelog entry.
 
 Library + CLI + GitHub Action. ESM, Node ≥ 20, zero runtime dependencies.

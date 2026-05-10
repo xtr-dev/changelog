@@ -1,6 +1,6 @@
 {
   "name": "@xtr-dev/changelog",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Conventional-commits-driven release tool. Every push to your release branch becomes a version bump and a changelog entry.",
   "keywords": [
     "changelog",

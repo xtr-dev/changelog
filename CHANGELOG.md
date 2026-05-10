@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.6] - 2026-05-10
+## [0.0.7] - 2026-05-10
 
 ### Other
-- **ci:** drop redundant push trigger on main (efd2a22)
+- add npm version, downloads, and license badges to README (0934f77)
+
+## [0.0.7] - 2026-05-10
+
+### Other
+- add npm version, downloads, and license badges to README (0934f77)
 
 ## [0.0.6] - 2026-05-10
 

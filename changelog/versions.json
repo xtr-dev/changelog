@@ -3,6 +3,25 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.8",
+      "date": "2026-05-10",
+      "commit": "33b9bde",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "tighten README with accurate defaults, clarified flow, and troubleshooting",
+            "commit": "33b9bde",
+            "author": "Claude",
+            "breaking": false,
+            "notes": []
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.7",
       "date": "2026-05-10",
       "commit": "0934f77",

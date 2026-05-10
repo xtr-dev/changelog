@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.0.5] - 2026-05-10
+## [0.0.6] - 2026-05-10
 
-### Fixes
-- **git:** use --atomic on push to prevent orphan tags (e40a389)
+### Other
+- **ci:** drop redundant push trigger on main (efd2a22)
+
+## [0.0.6] - 2026-05-10
+
+### Other
+- **ci:** drop redundant push trigger on main (efd2a22)
 
 ## [0.0.5] - 2026-05-10
 

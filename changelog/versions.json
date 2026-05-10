@@ -3,6 +3,30 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.6",
+      "date": "2026-05-10",
+      "commit": "efd2a22",
+      "breaking": false,
+      "groups": {
+        "other": [
+          {
+            "type": "chore",
+            "scope": "ci",
+            "description": "drop redundant push trigger on main",
+            "commit": "efd2a22",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.5",
       "date": "2026-05-10",
       "commit": "e40a389",

@@ -112,13 +112,13 @@ export async function push(
   branch: string | null,
   opts: GitOptions & { tags?: boolean; followTags?: boolean },
 ): Promise<void> {
-  const args = ['push']
+  const args = ['push', '--atomic']
   if (opts.followTags) args.push('--follow-tags')
   args.push(remote)
   if (branch) args.push(branch)
   await git(args, opts)
   if (opts.tags && !opts.followTags) {
-    await git(['push', remote, '--tags'], opts)
+    await git(['push', '--atomic', remote, '--tags'], opts)
   }
 }
 

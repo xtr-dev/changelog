@@ -5,11 +5,6 @@
 ### Other
 - tighten README with accurate defaults, clarified flow, and troubleshooting (33b9bde)
 
-## [0.0.8] - 2026-05-10
-
-### Other
-- tighten README with accurate defaults, clarified flow, and troubleshooting (33b9bde)
-
 ## [0.0.7] - 2026-05-10
 
 ### Other

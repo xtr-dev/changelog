@@ -132,6 +132,12 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
   const { cwd, config } = input
   const filesWritten: string[] = []
 
+  // Rotate exactly once. Both versions.json and CHANGELOG.md are rendered from
+  // this single result -- re-reading versions.json after writing it and
+  // rotating again would insert the new entry a second time.
+  let activeVersions: VersionEntry[] = [result.entry]
+  let archivedVersions: VersionEntry[] = emptyArchiveFile().versions
+
   if (config.output.versionsJson) {
     const versionsPath = resolveOutputPath(cwd, config.output.versionsJson.path)
     const archivePath = resolveOutputPath(cwd, config.output.versionsJson.archivePath)
@@ -149,14 +155,12 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
       await writeJson(archivePath, rotated.archive)
       filesWritten.push(archivePath)
     }
+    activeVersions = rotated.versions.versions
+    archivedVersions = rotated.archive.versions
   }
 
   if (config.output.markdown) {
-    const md = await buildFullChangelogMarkdown(
-      cwd,
-      config,
-      result.entry,
-    )
+    const md = buildFullChangelogMarkdown(config, activeVersions, archivedVersions)
     const mdPath = resolveOutputPath(cwd, config.output.markdown.path)
     await writeFile(mdPath, md, 'utf8')
     filesWritten.push(mdPath)
@@ -177,31 +181,12 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
   return { ...result, filesWritten }
 }
 
-async function buildFullChangelogMarkdown(
-  cwd: string,
+function buildFullChangelogMarkdown(
   config: ChangelogConfig,
-  newEntry: VersionEntry,
-): Promise<string> {
-  let activeVersions: VersionEntry[] = []
-  let archived: VersionEntry[] = []
-  if (config.output.versionsJson) {
-    const versionsPath = resolveOutputPath(cwd, config.output.versionsJson.path)
-    const archivePath = resolveOutputPath(cwd, config.output.versionsJson.archivePath)
-    const versions = await readVersionsFile(versionsPath)
-    const archive = await readArchiveFile(archivePath)
-    const rotated = rotate(
-      versions,
-      archive,
-      newEntry,
-      config.output.versionsJson.archiveAfter,
-    )
-    activeVersions = rotated.versions.versions
-    archived = rotated.archive.versions
-  } else {
-    activeVersions = [newEntry]
-    archived = emptyArchiveFile().versions
-  }
-  const all = [...activeVersions, ...archived]
+  activeVersions: VersionEntry[],
+  archivedVersions: VersionEntry[],
+): string {
+  const all = [...activeVersions, ...archivedVersions]
   const preamble =
     typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
   return buildChangelogMarkdown(all, config, preamble)

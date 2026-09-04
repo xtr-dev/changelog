@@ -78,6 +78,59 @@ describe('release (integration)', () => {
     expect(md).toContain('**cli:** support --json')
   })
 
+  it('writes each version section exactly once in CHANGELOG.md', async () => {
+    repo.commit('feat(cli): support --json')
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        ...defaultConfig().output,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+      },
+    }
+    await release({ cwd: repo.cwd, config })
+    const md = readFileSync(join(repo.cwd, 'CHANGELOG.md'), 'utf8')
+    const headings = md.match(/^## \[/gm) ?? []
+    expect(headings).toHaveLength(1)
+  })
+
+  it('does not duplicate sections across successive releases', async () => {
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        ...defaultConfig().output,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+      },
+    }
+
+    repo.commit('feat: first')
+    const first = await release({ cwd: repo.cwd, config })
+    repo.tag(`v${first.version}`)
+    repo.commit('feat: second')
+    await release({ cwd: repo.cwd, config })
+
+    const md = readFileSync(join(repo.cwd, 'CHANGELOG.md'), 'utf8')
+    const headings = md.match(/^## \[[^\]]+\]/gm) ?? []
+    expect(headings).toHaveLength(2)
+    expect(new Set(headings).size).toBe(2)
+  })
+
+  it('renders markdown when versionsJson output is disabled', async () => {
+    repo.commit('feat: only markdown')
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: false,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+        packageJson: false,
+      },
+    }
+    await release({ cwd: repo.cwd, config })
+    const md = readFileSync(join(repo.cwd, 'CHANGELOG.md'), 'utf8')
+    expect(md.match(/^## \[/gm) ?? []).toHaveLength(1)
+    expect(md).toContain('only markdown')
+    expect(existsSync(join(repo.cwd, 'changelog/versions.json'))).toBe(false)
+  })
+
   it('updates package.json#version when enabled', async () => {
     writeFileSync(
       join(repo.cwd, 'package.json'),

@@ -20,14 +20,15 @@ jobs:
 
     runs-on: ubuntu-latest
     permissions:
+      # A review never modifies the tree, so contents stays read-only; posting the
+      # review body and its inline comments is what requires pull-requests: write.
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
       id-token: write
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 

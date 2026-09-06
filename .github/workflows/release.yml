@@ -24,10 +24,14 @@ jobs:
 
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          # Node 22, not 20: `npm@latest` is now npm 12, which requires
+          # ^22.22.2 || ^24.15.0 || >=26.0.0, so installing it on Node 20 fails
+          # and takes the whole release with it. 22 is also the upper bound of
+          # the CI test matrix, so releases run on a version we actually test.
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing requires npm >= 11.5.1; Node 20 ships an older npm.
+      # Trusted Publishing requires npm >= 11.5.1; Node 22 ships an older npm.
       - run: npm i -g npm@latest
 
       - run: npm ci

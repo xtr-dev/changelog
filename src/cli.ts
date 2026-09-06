@@ -123,6 +123,7 @@ async function main(): Promise<void> {
 
   if (command === 'preview') {
     const result = await runPreview({ cwd, config })
+    printWarnings(result.warnings)
     if (json) {
       stdout.write(JSON.stringify(result, null, 2) + '\n')
     } else {
@@ -133,6 +134,7 @@ async function main(): Promise<void> {
 
   if (command === 'unreleased') {
     const result = await runPreview({ cwd, config })
+    printWarnings(result.warnings)
     if (!result.released || !result.entry) {
       stdout.write(JSON.stringify({ released: false }) + '\n')
       return
@@ -153,6 +155,7 @@ async function main(): Promise<void> {
 
     if (!execute) {
       const result = await runPreview({ cwd, config })
+      printWarnings(result.warnings)
       if (json) {
         stdout.write(JSON.stringify(result, null, 2) + '\n')
       } else {
@@ -167,6 +170,7 @@ async function main(): Promise<void> {
     }
 
     const result = await runRelease({ cwd, config })
+    printWarnings(result.warnings)
     if (!result.released || !result.entry) {
       if (json) stdout.write(JSON.stringify(result, null, 2) + '\n')
       else stdout.write(`${c.dim(sym.arrow)} ${c.dim('nothing to release')}\n`)
@@ -204,6 +208,16 @@ async function main(): Promise<void> {
   }
 
   fail(`unknown command: ${command}`)
+}
+
+/**
+ * Warnings go to stderr so they are visible even in --json mode, where stdout
+ * carries a payload something downstream is parsing.
+ */
+function printWarnings(warnings: string[]): void {
+  for (const w of warnings) {
+    stderr.write(`${c.yellow(sym.warn)} ${c.yellow('warning')}: ${w}\n`)
+  }
 }
 
 function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void {

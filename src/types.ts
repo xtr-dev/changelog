@@ -144,4 +144,10 @@ export interface ReleaseResult {
   filesWritten: string[]
   /** Commits scanned for this release. */
   commits: ParsedCommit[]
+  /**
+   * Non-fatal problems with the release setup (e.g. no durable place to record
+   * the version, so the next run would re-stamp this one). The CLI prints these
+   * to stderr; they never stop a release.
+   */
+  warnings: string[]
 }

@@ -170,6 +170,112 @@ describe('release (integration)', () => {
     expect(r.bumpLevel).toBe('patch')
   })
 
+  it('advances the version across untagged releases via versions.json (#8)', async () => {
+    // No v* tags and packageJson output off: versions.json is the only record
+    // of what shipped, so it has to be the anchor or every run re-stamps the
+    // same version.
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: {
+          path: 'changelog/versions.json',
+          archivePath: 'changelog/archive.json',
+          archiveAfter: 10,
+        },
+        markdown: false,
+        packageJson: false,
+      },
+    }
+
+    const seen: string[] = []
+    for (const subject of ['feat: a', 'feat: b', 'feat: c']) {
+      repo.commit(subject)
+      const result = await release({ cwd: repo.cwd, config })
+      seen.push(result.version)
+    }
+
+    expect(seen).toEqual(['0.1.0', '0.2.0', '0.3.0'])
+    expect(new Set(seen).size).toBe(3)
+
+    const store = JSON.parse(
+      readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
+    ) as { versions: { version: string }[] }
+    expect(store.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0', '0.1.0'])
+  })
+
+  it('prefers the highest anchor when package.json lags versions.json (#8)', async () => {
+    // package.json is stale at 0.0.0 because packageJson output is off; the
+    // higher versions.json entry must win so the release still moves forward.
+    writeFileSync(
+      join(repo.cwd, 'package.json'),
+      JSON.stringify({ name: 'x', version: '0.0.0' }, null, 2),
+    )
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: {
+          path: 'changelog/versions.json',
+          archivePath: 'changelog/archive.json',
+          archiveAfter: 10,
+        },
+        markdown: false,
+        packageJson: false,
+      },
+    }
+
+    repo.commit('feat: a')
+    const first = await release({ cwd: repo.cwd, config })
+    expect(first.version).toBe('0.1.0')
+
+    repo.commit('feat: b')
+    const second = await release({ cwd: repo.cwd, config })
+    expect(second.previousVersion).toBe('0.1.0')
+    expect(second.version).toBe('0.2.0')
+  })
+
+  it('still prefers a tag over versions.json when one exists', async () => {
+    const config: ChangelogConfig = { ...defaultConfig(), output: { ...defaultConfig().output } }
+    repo.commit('feat: a')
+    await release({ cwd: repo.cwd, config })
+    repo.tag('v2.0.0')
+    repo.commit('fix: b')
+
+    const result = await release({ cwd: repo.cwd, config })
+    expect(result.previousVersion).toBe('2.0.0')
+    expect(result.version).toBe('2.0.1')
+  })
+
+  it('warns when nothing durable records the version (#8)', async () => {
+    // markdown-only is the reachable form of this: loadConfig rejects a config
+    // with every output disabled, but markdown alone still records nothing a
+    // later run can read back.
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: false,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+        packageJson: false,
+      },
+    }
+    repo.commit('feat: a')
+    const first = await release({ cwd: repo.cwd, config })
+
+    expect(first.warnings).toHaveLength(1)
+    expect(first.warnings[0]).toMatch(/re-stamp the same version/)
+
+    // and the warning is telling the truth: the next run does re-stamp.
+    repo.commit('feat: b')
+    const second = await release({ cwd: repo.cwd, config })
+    expect(second.version).toBe(first.version)
+  })
+
+  it('does not warn when an output records the version', async () => {
+    const config: ChangelogConfig = { ...defaultConfig(), output: { ...defaultConfig().output } }
+    repo.commit('feat: a')
+    const result = await release({ cwd: repo.cwd, config })
+    expect(result.warnings).toEqual([])
+  })
+
   it('rotates archive after the configured threshold', async () => {
     const cfg: ChangelogConfig = {
       ...defaultConfig(),

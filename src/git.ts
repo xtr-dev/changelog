@@ -138,6 +138,15 @@ export async function push(
   }
 }
 
+/** URL of a remote, or null if it does not exist. */
+export async function getRemoteUrl(remote: string, opts: GitOptions): Promise<string | null> {
+  try {
+    return (await git(['remote', 'get-url', remote], opts)).trim() || null
+  } catch {
+    return null
+  }
+}
+
 /** True when `ancestor` is reachable from HEAD. */
 export async function isAncestorOfHead(ancestor: string, opts: GitOptions): Promise<boolean> {
   try {

@@ -39,6 +39,8 @@ export interface VersionEntryChange {
   scope: string | null
   description: string
   commit: string
+  /** Full SHA, used for commit links. Absent in entries written by older versions. */
+  hash?: string
   author?: string
   breaking: boolean
   notes: CommitNote[]
@@ -126,6 +128,13 @@ export interface ChangelogConfig {
     markdown: { path: string; preamble: string } | false
     packageJson: { path: string } | false
   }
+
+  /**
+   * Base URL of the repository (e.g. https://github.com/o/r), used to link
+   * commits, issues and version comparisons in the markdown. Detected from
+   * package.json#repository or the origin remote when unset; false disables links.
+   */
+  repositoryUrl?: string | false
 
   /** Tag prefix. Default 'v'. */
   tagPrefix: string

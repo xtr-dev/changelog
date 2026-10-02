@@ -33,6 +33,7 @@ export function buildVersionEntry(args: {
       scope: c.scope,
       description: c.description,
       commit: c.raw.shortHash,
+      ...(c.raw.hash ? { hash: c.raw.hash } : {}),
       ...(c.raw.author ? { author: c.raw.author } : {}),
       breaking: c.breaking,
       notes: c.notes,
@@ -72,22 +73,33 @@ export function buildVersionEntry(args: {
  * Default markdown formatter. Returns the section for one version, in
  * Keep-a-Changelog style, without the document-level title.
  *
- *     ## [0.4.2] - 2026-05-09
+ *     ## [0.4.2](https://github.com/o/r/compare/v0.4.1...v0.4.2) - 2026-05-09
  *
  *     ### Breaking
- *     - **api:** removed legacy fields (deadbee)
+ *     - **api:** removed legacy fields ([deadbee](https://github.com/o/r/commit/deadbee...))
  *
  *     ### Features
- *     - **cli:** support --json output (abc123)
+ *     - **cli:** support --json output ([abc1234](https://github.com/o/r/commit/abc1234...)), closes [#12](https://github.com/o/r/issues/12)
+ *
+ * Links are added only when config.repositoryUrl is set (it is detected from
+ * package.json#repository or the origin remote by loadConfig). The compare
+ * link needs the previous version, which the document builders pass in.
  */
 export function formatVersionMarkdown(
   entry: VersionEntry,
   config: ChangelogConfig,
+  previousVersion?: string,
 ): string {
   if (config.formatter) return config.formatter(entry)
 
+  const repo = config.repositoryUrl || null
   const lines: string[] = []
-  lines.push(`## [${entry.version}] - ${entry.date}`)
+  const tag = (v: string) => `${config.tagPrefix}${v}`
+  const heading =
+    repo && previousVersion
+      ? `[${entry.version}](${repo}/compare/${tag(previousVersion)}...${tag(entry.version)})`
+      : `[${entry.version}]`
+  lines.push(`## ${heading} - ${entry.date}`)
 
   const groupOrder: Array<{ key: string; title: string }> = []
   if (entry.groups.breaking) groupOrder.push({ key: 'breaking', title: 'Breaking' })
@@ -103,22 +115,53 @@ export function formatVersionMarkdown(
   }
 
   for (const g of groupOrder) {
-    const items = entry.groups[g.key]
-    if (!items || items.length === 0) continue
+    // Breaking changes are listed under Breaking; repeating them in their
+    // type's group too would list them twice.
+    const items = (entry.groups[g.key] ?? []).filter(
+      (item) => g.key === 'breaking' || !item.breaking || !entry.groups.breaking,
+    )
+    if (items.length === 0) continue
     lines.push('')
     lines.push(`### ${g.title}`)
     for (const item of items) {
-      lines.push(`- ${formatChangeLine(item)}`)
+      lines.push(`- ${formatChangeLine(item, repo, g.key === 'breaking')}`)
     }
   }
 
   return lines.join('\n') + '\n'
 }
 
-function formatChangeLine(c: VersionEntryChange): string {
+const BREAKING_NOTE_TITLES = new Set(['BREAKING CHANGE', 'BREAKING-CHANGE', 'BREAKING'])
+const ISSUE_NOTE_TITLES = new Set(['closes', 'close', 'closed', 'fixes', 'fix', 'fixed', 'resolves', 'resolve', 'resolved', 'refs', 'ref'])
+
+function formatChangeLine(c: VersionEntryChange, repo: string | null, inBreaking: boolean): string {
   const scope = c.scope ? `**${c.scope}:** ` : ''
-  const breaking = c.breaking ? ' ⚠️' : ''
-  return `${scope}${c.description}${breaking} (${c.commit})`
+  const breaking = c.breaking && !inBreaking ? ' ⚠️' : ''
+  const description = repo ? linkIssues(c.description, repo) : c.description
+  const commit =
+    repo && c.hash ? `[${c.commit}](${repo}/commit/${c.hash})` : c.commit
+  let line = `${scope}${description}${breaking} (${commit})`
+
+  const refs = (c.notes ?? [])
+    .filter((n) => ISSUE_NOTE_TITLES.has(n.title.toLowerCase()))
+    .flatMap((n) => [...n.text.matchAll(/#?(\d+)/g)].map((m) => ({ verb: n.title.toLowerCase(), id: m[1]! })))
+  for (const ref of refs) {
+    const verb = ref.verb.startsWith('ref') ? 'refs' : 'closes'
+    line += repo ? `, ${verb} [#${ref.id}](${repo}/issues/${ref.id})` : `, ${verb} #${ref.id}`
+  }
+
+  if (inBreaking) {
+    for (const note of c.notes ?? []) {
+      if (!BREAKING_NOTE_TITLES.has(note.title.toUpperCase())) continue
+      for (const text of note.text.split('\n')) line += `\n  ${text}`
+    }
+  }
+  return line
+}
+
+/** Link bare `#123` references (as squash merges write them) to the issue. */
+function linkIssues(text: string, repo: string): string {
+  return text.replace(/(^|[\s(])#(\d+)\b/g, (_m, pre: string, id: string) => `${pre}[#${id}](${repo}/issues/${id})`)
 }
 
 function titleCase(s: string): string {
@@ -139,9 +182,9 @@ export function buildChangelogMarkdown(
   if (preamble && preamble.trim()) {
     parts.push(preamble.trim() + '\n')
   }
-  for (const v of versions) {
-    parts.push(formatVersionMarkdown(v, config))
-  }
+  versions.forEach((v, i) => {
+    parts.push(formatVersionMarkdown(v, config, versions[i + 1]?.version))
+  })
   return parts.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }
 
@@ -160,7 +203,8 @@ export function insertChangelogSection(
   if (existing === null || !existing.trim()) {
     return buildChangelogMarkdown([entry], config, preamble)
   }
-  const section = formatVersionMarkdown(entry, config).trimEnd() + '\n'
+  const previous = /^## \[([^\]]+)\]/m.exec(existing)?.[1]
+  const section = formatVersionMarkdown(entry, config, previous).trimEnd() + '\n'
   const firstVersion = /^## /m.exec(existing)
   if (!firstVersion) {
     return existing.trimEnd() + '\n\n' + section

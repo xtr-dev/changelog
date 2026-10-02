@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 import { join, resolve } from 'node:path'
 
+import { getRemoteUrl } from './git.js'
+import { normalizeRepositoryUrl } from './repository.js'
 import type { BumpLevel, ChangelogConfig, GroupDef } from './types.js'
 
 export const DEFAULT_BUMP_MAP: Record<string, BumpLevel> = {
@@ -79,7 +81,28 @@ const CONFIG_FILES = [
 
 export async function loadConfig(cwd: string): Promise<ChangelogConfig> {
   const userConfig = await loadUserConfig(cwd)
-  return mergeConfig(defaultConfig(), userConfig)
+  const config = mergeConfig(defaultConfig(), userConfig)
+  if (config.repositoryUrl === undefined) {
+    const detected = await detectRepositoryUrl(cwd)
+    if (detected) config.repositoryUrl = detected
+  } else if (typeof config.repositoryUrl === 'string') {
+    config.repositoryUrl = normalizeRepositoryUrl(config.repositoryUrl) ?? config.repositoryUrl
+  }
+  return config
+}
+
+async function detectRepositoryUrl(cwd: string): Promise<string | null> {
+  const pkgPath = join(cwd, 'package.json')
+  if (existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(await readFile(pkgPath, 'utf8')) as { repository?: unknown }
+      const fromPkg = normalizeRepositoryUrl(pkg.repository)
+      if (fromPkg) return fromPkg
+    } catch {
+      // A broken package.json is reported where it matters (packageJson output).
+    }
+  }
+  return normalizeRepositoryUrl(await getRemoteUrl('origin', { cwd }))
 }
 
 async function loadUserConfig(cwd: string): Promise<Partial<ChangelogConfig>> {

@@ -16,6 +16,7 @@ export {
   rotate,
   writeJson,
 } from './versions-store.js'
+export { normalizeRepositoryUrl } from './repository.js'
 export { compareSemver, formatSemver, inc, incPatchBy, isValidSemver, parseSemver } from './semver.js'
 export type {
   ArchiveFile,

@@ -23,9 +23,13 @@ export async function getLastTag(
 ): Promise<string | null> {
   let raw: string
   try {
-    raw = await git(['tag', '--list', `${opts.tagPrefix}*`], opts)
-  } catch {
-    return null
+    // Only tags reachable from HEAD count. A tag cut on another branch (a
+    // newer major on `next`, say) must not become the base for a hotfix here.
+    raw = await git(['tag', '--list', '--merged', 'HEAD', `${opts.tagPrefix}*`], opts)
+  } catch (err) {
+    // A repo with no commits has no HEAD, so no tags can be reachable.
+    if (isNoHeadError(err)) return null
+    throw err
   }
   const tags = raw
     .split('\n')
@@ -46,22 +50,34 @@ export async function getLastTag(
 const DELIMITER = 'COMMIT'
 const FIELD = 'FIELD'
 
+function isNoHeadError(err: unknown): boolean {
+  const stderr = (err as { stderr?: string }).stderr ?? ''
+  return (
+    /does not have any commits yet/.test(stderr) ||
+    /ambiguous argument 'HEAD'/.test(stderr) ||
+    /malformed object name:? .?HEAD/i.test(stderr)
+  )
+}
+
 export async function getCommitsSince(
   ref: string | null,
-  opts: GitOptions,
+  opts: GitOptions & { paths?: string[] },
 ): Promise<RawCommit[]> {
   const range = ref ? `${ref}..HEAD` : 'HEAD'
   const format = ['%H', '%h', '%an', '%aI', '%s', '%b'].join(FIELD) + DELIMITER
 
+  const args = ['log', `--format=${format}`, range]
+  if (opts.paths && opts.paths.length > 0) args.push('--', ...opts.paths)
+
   let raw: string
   try {
-    raw = await git(['log', `--format=${format}`, range], opts)
+    raw = await git(args, opts)
   } catch (err) {
-    // No commits yet, or invalid range.
-    if ((err as { stderr?: string }).stderr?.includes('unknown revision')) {
-      return []
-    }
-    return []
+    // An empty repository has nothing to release. Anything else (git missing,
+    // a bad ref, a corrupt repo) is a real problem and must not masquerade as
+    // "nothing to release".
+    if (isNoHeadError(err)) return []
+    throw err
   }
 
   const out: RawCommit[] = []
@@ -119,6 +135,16 @@ export async function push(
   await git(args, opts)
   if (opts.tags && !opts.followTags) {
     await git(['push', '--atomic', remote, '--tags'], opts)
+  }
+}
+
+/** True when `ancestor` is reachable from HEAD. */
+export async function isAncestorOfHead(ancestor: string, opts: GitOptions): Promise<boolean> {
+  try {
+    await git(['merge-base', '--is-ancestor', ancestor, 'HEAD'], opts)
+    return true
+  } catch {
+    return false
   }
 }
 

@@ -7,6 +7,8 @@ export interface TempRepo {
   cwd: string
   commit: (subject: string, body?: string, file?: { path: string; content: string }) => string
   tag: (name: string) => void
+  /** Run an arbitrary git command in the repo. */
+  git: (args: string[]) => string
   cleanup: () => void
 }
 
@@ -52,6 +54,7 @@ export function createTempRepo(): TempRepo {
     tag: (name) => {
       run(['tag', '-a', name, '-m', `Release ${name}`])
     },
+    git: run,
     cleanup: () => {
       rmSync(dir, { recursive: true, force: true })
     },

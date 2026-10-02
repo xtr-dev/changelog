@@ -7,7 +7,7 @@ import { resolveOutputPath } from './config.js'
 import { buildChangelogMarkdown, buildVersionEntry } from './format.js'
 import { getCommitsSince, getLastTag } from './git.js'
 import { filterCommits, parseCommit } from './parse.js'
-import { isValidSemver } from './semver.js'
+import { compareSemver, isValidSemver } from './semver.js'
 import type {
   ChangelogConfig,
   ParsedCommit,
@@ -28,11 +28,13 @@ interface ResolvedState {
   lastTag: string | null
   rawCommits: ParsedCommit[]
   filteredCommits: ParsedCommit[]
+  warnings: string[]
 }
 
 async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
   const { cwd, config } = input
   const lastTag = await getLastTag({ cwd, tagPrefix: config.tagPrefix })
+  const warnings: string[] = []
 
   let previousVersion: string
   if (input.currentVersionOverride) {
@@ -40,7 +42,27 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
   } else if (lastTag) {
     previousVersion = lastTag.slice(config.tagPrefix.length)
   } else {
-    previousVersion = await readPackageVersion(cwd, config) ?? config.initialVersion
+    // No tag to anchor to (a shallow clone, or a repo that does not tag).
+    // Take the highest version any enabled output has already recorded, so
+    // successive releases still move forward. Using the max rather than a
+    // fixed precedence keeps this monotonic whichever outputs are enabled.
+    const candidates = [
+      await readPackageVersion(cwd, config),
+      await readVersionsJsonVersion(cwd, config),
+    ].filter((v): v is string => v !== null)
+
+    previousVersion = candidates.length > 0
+      ? candidates.reduce((a, b) => (compareSemver(a, b) >= 0 ? a : b))
+      : config.initialVersion
+
+    if (!config.output.packageJson && !config.output.versionsJson) {
+      warnings.push(
+        'No tag matching tagPrefix was found, and neither output.packageJson nor ' +
+          'output.versionsJson is enabled, so this release is not recorded anywhere ' +
+          'the next run can read. Every run will re-stamp the same version. Enable ' +
+          'one of those outputs, tag releases (--tag), or pass currentVersionOverride.',
+      )
+    }
   }
   if (!isValidSemver(previousVersion)) {
     throw new Error(`Previous version is not valid semver: ${previousVersion}`)
@@ -52,7 +74,28 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     includeTypes: config.includeTypes,
     excludeTypes: config.excludeTypes,
   })
-  return { previousVersion, lastTag, rawCommits: parsed, filteredCommits: filtered }
+  return { previousVersion, lastTag, rawCommits: parsed, filteredCommits: filtered, warnings }
+}
+
+/**
+ * Newest version recorded in versions.json, if that output is enabled and the
+ * file holds a usable entry. This is the anchor of last resort when the repo
+ * has no tags -- versions.json is written on every release, so it is the one
+ * artifact guaranteed to reflect what was last shipped.
+ */
+async function readVersionsJsonVersion(
+  cwd: string,
+  config: ChangelogConfig,
+): Promise<string | null> {
+  if (!config.output.versionsJson) return null
+  const versionsPath = resolveOutputPath(cwd, config.output.versionsJson.path)
+  try {
+    const file = await readVersionsFile(versionsPath)
+    const head = file.versions[0]
+    return head && isValidSemver(head.version) ? head.version : null
+  } catch {
+    return null
+  }
 }
 
 async function readPackageVersion(
@@ -96,6 +139,7 @@ export async function preview(input: ReleaseInput): Promise<PreviewResult> {
       entry: null,
       filesWritten: [],
       commits: state.filteredCommits,
+      warnings: state.warnings,
     }
   }
 
@@ -114,6 +158,7 @@ export async function preview(input: ReleaseInput): Promise<PreviewResult> {
     entry,
     filesWritten: [],
     commits: state.filteredCommits,
+    warnings: state.warnings,
   }
 }
 

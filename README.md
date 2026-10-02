@@ -191,6 +191,17 @@ export default {
 } satisfies ChangelogConfig
 ```
 
+### Where the previous version comes from
+
+In precedence order:
+
+1. `currentVersionOverride`, if you pass it to the library.
+2. The highest `tagPrefix`-matching tag in the repo (default prefix `v`).
+3. Otherwise, the highest version any enabled output already records — `package.json#version` and the newest `versions.json` entry, whichever is greater.
+4. Otherwise `initialVersion` (default `0.0.0`).
+
+Step 3 is what keeps untagged repos monotonic: `versions.json` is written on every release, so it works as the anchor even when tags are absent (a shallow CI clone) and `output.packageJson` is off. Disable *both* of those outputs and there is nowhere left to record the version — every run then re-stamps the same one, and the CLI warns you.
+
 ### Bump modes
 
 - **`semver`** (default) — type → level via `bumpMap`, breaking → major. The expected behavior.
@@ -290,6 +301,7 @@ The high-level entry points are `preview` (read-only) and `release` (does the I/
 ## Troubleshooting
 
 - **"No commits found" / wrong base.** The tool walks back to the most recent tag matching `tagPrefix` (default `v`). In CI, make sure tags are present — `actions/checkout@v4` needs `with: { fetch-depth: 0 }` (a shallow clone has no tags).
+- **The same version keeps getting released.** The previous version comes from the most recent `tagPrefix` tag. With no such tag — a shallow CI clone, or a repo that doesn't tag — it falls back to the highest version recorded by an enabled output: `package.json#version` or the newest entry in `versions.json`. If neither of those outputs is enabled, nothing persists the version and every run re-stamps the same one; the CLI prints a warning to stderr when it detects this. Fix it by enabling `output.versionsJson` or `output.packageJson`, tagging releases (`--tag`), or passing `currentVersionOverride`.
 - **The release commit triggers another release run.** The default commit message includes `[skip ci]`, but only the `if:` guard in your workflow actually stops it. Keep the `if: "!contains(github.event.head_commit.message, '[skip ci]')"` line, or set `message` to something else and update the guard to match.
 - **Signed commits in CI.** The action commits as `github-actions[bot]` and does not sign. If your branch protection requires signed commits, run the release on a branch that allows unsigned commits, or set `commit: false` and sign/push from a separate step.
 - **`bumpMode: 'custom'` errors.** `customBump` must return a valid semver string. Return the *same* version as `current` to skip the release (no entry written, no commit, no tag).

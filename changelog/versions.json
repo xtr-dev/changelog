@@ -3,6 +3,305 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.27",
+      "date": "2026-10-02",
+      "commit": "ab68131",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": null,
+            "description": "ship JSON schemas for versions.json and the config",
+            "commit": "b37f152",
+            "hash": "b37f1523dff6197db39f9089271caad289d76be2",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": "cli",
+            "description": "strict flags, library git steps, notes command",
+            "commit": "ef942ac",
+            "hash": "ef942ac87f4f086bd7fc4f165e146977466f9db7",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": "format",
+            "description": "link commits, issues and version comparisons",
+            "commit": "77cac7d",
+            "hash": "77cac7d6d2957d9f93bc1aed003f13074f2f1ebf",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": "parse",
+            "description": "cancel reverted commits within a release",
+            "commit": "b45f6b6",
+            "hash": "b45f6b680d7f51de489415af23728a5e9bcde147",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": null,
+            "description": "pre-releases, --release-as, and a way out of 0.x",
+            "commit": "7044507",
+            "hash": "704450743f91bbd9110114adbbf38aac82f80eca",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "action",
+            "description": "stop shell injection and pin the CLI to the action's ref",
+            "commit": "3b6467c",
+            "hash": "3b6467c778c3ea9f533c1a6626626860412908ff",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "config",
+            "description": "reject unknown keys and wrong types",
+            "commit": "9633496",
+            "hash": "9633496ed4f4287e704e30112fa29873969f6fff",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "release",
+            "description": "keep CHANGELOG.md history and bump package-lock.json",
+            "commit": "6810976",
+            "hash": "68109769b94bd965df83d94a25851650f766cd8e",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "release",
+            "description": "start untagged scans at the last recorded release",
+            "commit": "ab12c4b",
+            "hash": "ab12c4b2520d2101cad9c8e9d6270c88b135592c",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "git",
+            "description": "only use tags reachable from HEAD and surface git errors",
+            "commit": "caa733d",
+            "hash": "caa733de33bebdd805295ffce3eb66637ea54036",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "test",
+            "scope": null,
+            "description": "give temp repos a local git identity",
+            "commit": "ab68131",
+            "hash": "ab6813115547473ecb68b053035d5636e726e124",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "document the new behaviour and options",
+            "commit": "9e54788",
+            "hash": "9e54788a54bd8f6b1d596b64128ae300b778b19e",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "test",
+            "scope": "release",
+            "description": "cover releasing one package of a monorepo",
+            "commit": "5abf89f",
+            "hash": "5abf89f983359a9bf9172f582c3cc3306fb23771",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "lint, Node 24, an action test, and publish before push",
+            "commit": "fe0e2e5",
+            "hash": "fe0e2e521bdd639b044edab542e6d72b66269756",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          },
+          {
+            "type": "chore",
+            "scope": null,
+            "description": "add Biome lint/format, coverage, and typecheck the tests",
+            "commit": "e224a7a",
+            "hash": "e224a7a8cbd5f6f93c883631a8e4f5c4e82e5de3",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_012sxQ9FHa9gkzEdMZayzWXX"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.12",
       "date": "2026-10-02",
       "commit": "f0c7573",

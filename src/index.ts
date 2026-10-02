@@ -1,7 +1,12 @@
 export { defaultConfig, loadConfig, mergeConfig, DEFAULT_BUMP_MAP, DEFAULT_GROUPS } from './config.js'
 export { computeNextVersion, deriveSemverBump, maxBump } from './bump.js'
 export { parseCommit, filterCommits } from './parse.js'
-export { buildVersionEntry, formatVersionMarkdown, buildChangelogMarkdown } from './format.js'
+export {
+  buildVersionEntry,
+  formatVersionMarkdown,
+  buildChangelogMarkdown,
+  insertChangelogSection,
+} from './format.js'
 export { preview, release } from './release.js'
 export {
   emptyArchiveFile,

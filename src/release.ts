@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { computeNextVersion } from './bump.js'
 import { resolveOutputPath } from './config.js'
-import { buildChangelogMarkdown, buildVersionEntry } from './format.js'
+import { buildChangelogMarkdown, buildVersionEntry, insertChangelogSection } from './format.js'
 import { getCommitsSince, getLastTag, isAncestorOfHead } from './git.js'
 import { filterCommits, parseCommit } from './parse.js'
 import { compareSemver, isValidSemver } from './semver.js'
@@ -237,25 +237,59 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
   }
 
   if (config.output.markdown) {
-    const md = buildFullChangelogMarkdown(config, activeVersions, archivedVersions)
     const mdPath = resolveOutputPath(cwd, config.output.markdown.path)
+    // With versions.json on, CHANGELOG.md is a pure rendering of it and is
+    // rebuilt in full. Without it, the markdown file is the only history there
+    // is, so the new section is inserted and everything else is kept.
+    const md = config.output.versionsJson
+      ? buildFullChangelogMarkdown(config, activeVersions, archivedVersions)
+      : insertChangelogSection(
+          existsSync(mdPath) ? await readFile(mdPath, 'utf8') : null,
+          result.entry,
+          config,
+        )
     await writeFile(mdPath, md, 'utf8')
     filesWritten.push(mdPath)
   }
 
   if (config.output.packageJson) {
     const pkgPath = resolveOutputPath(cwd, config.output.packageJson.path)
-    if (existsSync(pkgPath)) {
-      const raw = await readFile(pkgPath, 'utf8')
-      const trailingNewline = raw.endsWith('\n') ? '\n' : ''
-      const pkg = JSON.parse(raw) as Record<string, unknown>
+    if (await updateJsonFile(pkgPath, (pkg) => {
       pkg.version = result.version
-      await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + trailingNewline, 'utf8')
+    })) {
       filesWritten.push(pkgPath)
+    }
+    // Keep the lockfile's copy of the root version in step, or the release
+    // commit leaves package-lock.json claiming the old version.
+    const lockPath = join(dirname(pkgPath), 'package-lock.json')
+    if (await updateJsonFile(lockPath, (lock) => {
+      lock.version = result.version
+      const packages = lock.packages as Record<string, Record<string, unknown>> | undefined
+      if (packages?.['']) packages[''].version = result.version
+    })) {
+      filesWritten.push(lockPath)
     }
   }
 
   return { ...result, filesWritten }
+}
+
+/**
+ * Rewrite a JSON file in place, preserving its indentation and trailing
+ * newline. Returns false when the file does not exist.
+ */
+async function updateJsonFile(
+  path: string,
+  mutate: (data: Record<string, unknown>) => void,
+): Promise<boolean> {
+  if (!existsSync(path)) return false
+  const raw = await readFile(path, 'utf8')
+  const trailingNewline = raw.endsWith('\n') ? '\n' : ''
+  const indent = /^[ \t]+(?=")/m.exec(raw)?.[0] ?? '  '
+  const data = JSON.parse(raw) as Record<string, unknown>
+  mutate(data)
+  await writeFile(path, JSON.stringify(data, null, indent) + trailingNewline, 'utf8')
+  return true
 }
 
 function buildFullChangelogMarkdown(

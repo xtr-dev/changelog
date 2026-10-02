@@ -144,3 +144,28 @@ export function buildChangelogMarkdown(
   }
   return parts.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
 }
+
+/**
+ * Insert one version's section into an existing CHANGELOG.md, above the newest
+ * existing version and below the title and any preamble. Everything already in
+ * the file is kept verbatim. With no existing file, builds a fresh document.
+ */
+export function insertChangelogSection(
+  existing: string | null,
+  entry: VersionEntry,
+  config: ChangelogConfig,
+): string {
+  const preamble =
+    typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
+  if (existing === null || !existing.trim()) {
+    return buildChangelogMarkdown([entry], config, preamble)
+  }
+  const section = formatVersionMarkdown(entry, config).trimEnd() + '\n'
+  const firstVersion = /^## /m.exec(existing)
+  if (!firstVersion) {
+    return existing.trimEnd() + '\n\n' + section
+  }
+  const before = existing.slice(0, firstVersion.index)
+  const after = existing.slice(firstVersion.index)
+  return before + section + '\n' + after
+}

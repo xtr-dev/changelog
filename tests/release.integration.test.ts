@@ -344,4 +344,58 @@ describe('release (integration)', () => {
     const r = await preview({ cwd: repo.cwd, config })
     expect(r.warnings.join('\n')).toMatch(/not in the history of HEAD/)
   })
+
+  it('keeps existing CHANGELOG.md history when versionsJson is off', async () => {
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: false,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+        packageJson: false,
+      },
+    }
+    writeFileSync(
+      join(repo.cwd, 'CHANGELOG.md'),
+      '# Changelog\n\nHand-written intro.\n\n## [0.1.0] - 2026-01-01\n\n### Features\n- old entry (aaaaaaa)\n',
+    )
+    repo.commit('feat: a')
+    repo.tag('v0.1.0')
+    repo.commit('fix: b')
+    await release({ cwd: repo.cwd, config })
+    const md = readFileSync(join(repo.cwd, 'CHANGELOG.md'), 'utf8')
+    expect(md.match(/^## \[[^\]]+\]/gm)).toEqual(['## [0.1.1]', '## [0.1.0]'])
+    expect(md).toContain('Hand-written intro.')
+    expect(md).toContain('old entry (aaaaaaa)')
+    expect(md.indexOf('Hand-written intro.')).toBeLessThan(md.indexOf('## [0.1.1]'))
+  })
+
+  it('bumps package-lock.json alongside package.json, keeping indentation', async () => {
+    writeFileSync(
+      join(repo.cwd, 'package.json'),
+      JSON.stringify({ name: 'app', version: '0.0.0' }, null, 4) + '\n',
+    )
+    writeFileSync(
+      join(repo.cwd, 'package-lock.json'),
+      JSON.stringify(
+        { name: 'app', version: '0.0.0', lockfileVersion: 3, packages: { '': { name: 'app', version: '0.0.0' } } },
+        null,
+        2,
+      ) + '\n',
+    )
+    repo.commit('feat: x')
+    const cfg: ChangelogConfig = {
+      ...defaultConfig(),
+      output: { ...defaultConfig().output, packageJson: { path: 'package.json' } },
+    }
+    const r = await release({ cwd: repo.cwd, config: cfg })
+    const pkgRaw = readFileSync(join(repo.cwd, 'package.json'), 'utf8')
+    expect(pkgRaw).toContain('    "version": "0.1.0"')
+    const lock = JSON.parse(readFileSync(join(repo.cwd, 'package-lock.json'), 'utf8')) as {
+      version: string
+      packages: Record<string, { version: string }>
+    }
+    expect(lock.version).toBe('0.1.0')
+    expect(lock.packages['']!.version).toBe('0.1.0')
+    expect(r.filesWritten.some((f) => f.endsWith('package-lock.json'))).toBe(true)
+  })
 })

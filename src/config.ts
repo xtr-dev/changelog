@@ -121,7 +121,9 @@ async function loadUserConfig(cwd: string): Promise<Partial<ChangelogConfig>> {
       )
     }
     const url = pathToFileURL(path).href
-    const mod = (await import(url)) as { default?: Partial<ChangelogConfig> } & Partial<ChangelogConfig>
+    const mod = (await import(url)) as {
+      default?: Partial<ChangelogConfig>
+    } & Partial<ChangelogConfig>
     return mod.default ?? mod
   }
   // 2. package.json#changelog
@@ -150,14 +152,9 @@ export function mergeConfig(
         user.output?.versionsJson === undefined
           ? base.output.versionsJson
           : user.output.versionsJson,
-      markdown:
-        user.output?.markdown === undefined
-          ? base.output.markdown
-          : user.output.markdown,
+      markdown: user.output?.markdown === undefined ? base.output.markdown : user.output.markdown,
       packageJson:
-        user.output?.packageJson === undefined
-          ? base.output.packageJson
-          : user.output.packageJson,
+        user.output?.packageJson === undefined ? base.output.packageJson : user.output.packageJson,
     },
   }
   validateConfig(merged)
@@ -205,14 +202,24 @@ function validateUserConfig(user: unknown): void {
     if (!KNOWN_KEYS.has(key)) errors.push(`unknown key "${key}"`)
   }
   if ('bumpMode' in u && !['semver', 'commit-count', 'custom'].includes(u.bumpMode as string)) {
-    errors.push(`bumpMode must be 'semver', 'commit-count' or 'custom' (got ${JSON.stringify(u.bumpMode)})`)
+    errors.push(
+      `bumpMode must be 'semver', 'commit-count' or 'custom' (got ${JSON.stringify(u.bumpMode)})`,
+    )
   }
-  if ('customBump' in u && typeof u.customBump !== 'function') errors.push('customBump must be a function')
-  if ('formatter' in u && typeof u.formatter !== 'function') errors.push('formatter must be a function')
-  if ('initialVersion' in u && (typeof u.initialVersion !== 'string' || !isValidSemver(u.initialVersion))) {
+  if ('customBump' in u && typeof u.customBump !== 'function')
+    errors.push('customBump must be a function')
+  if ('formatter' in u && typeof u.formatter !== 'function')
+    errors.push('formatter must be a function')
+  if (
+    'initialVersion' in u &&
+    (typeof u.initialVersion !== 'string' || !isValidSemver(u.initialVersion))
+  ) {
     errors.push(`initialVersion must be a semver string (got ${JSON.stringify(u.initialVersion)})`)
   }
-  if ('prerelease' in u && (typeof u.prerelease !== 'string' || !/^[0-9A-Za-z-]+$/.test(u.prerelease))) {
+  if (
+    'prerelease' in u &&
+    (typeof u.prerelease !== 'string' || !/^[0-9A-Za-z-]+$/.test(u.prerelease))
+  ) {
     errors.push('prerelease must be an identifier like "beta" or "rc"')
   }
   if ('bumpMinorPreMajor' in u && typeof u.bumpMinorPreMajor !== 'boolean') {
@@ -228,7 +235,8 @@ function validateUserConfig(user: unknown): void {
   if ('includeTypes' in u && u.includeTypes !== null && !isStringArray(u.includeTypes)) {
     errors.push('includeTypes must be an array of strings or null')
   }
-  if ('excludeTypes' in u && !isStringArray(u.excludeTypes)) errors.push('excludeTypes must be an array of strings')
+  if ('excludeTypes' in u && !isStringArray(u.excludeTypes))
+    errors.push('excludeTypes must be an array of strings')
   if ('bumpMap' in u) {
     const map = u.bumpMap
     if (!map || typeof map !== 'object' || Array.isArray(map)) {
@@ -236,7 +244,9 @@ function validateUserConfig(user: unknown): void {
     } else {
       for (const [type, level] of Object.entries(map)) {
         if (!LEVELS.includes(level as string)) {
-          errors.push(`bumpMap.${type} must be one of ${LEVELS.join(', ')} (got ${JSON.stringify(level)})`)
+          errors.push(
+            `bumpMap.${type} must be one of ${LEVELS.join(', ')} (got ${JSON.stringify(level)})`,
+          )
         }
       }
     }
@@ -247,7 +257,12 @@ function validateUserConfig(user: unknown): void {
     } else {
       u.groups.forEach((g: unknown, i: number) => {
         const group = g as Partial<GroupDef> | null
-        if (!group || typeof group.title !== 'string' || typeof group.key !== 'string' || !isStringArray(group.types)) {
+        if (
+          !group ||
+          typeof group.title !== 'string' ||
+          typeof group.key !== 'string' ||
+          !isStringArray(group.types)
+        ) {
           errors.push(`groups[${i}] must be { title: string, key: string, types: string[] }`)
         }
       })
@@ -275,7 +290,8 @@ function validateUserConfig(user: unknown): void {
         }
         if (typeof v.path !== 'string') errors.push(`output.${name}.path must be a string`)
         if (name === 'versionsJson') {
-          if (typeof v.archivePath !== 'string') errors.push('output.versionsJson.archivePath must be a string')
+          if (typeof v.archivePath !== 'string')
+            errors.push('output.versionsJson.archivePath must be a string')
           if (!Number.isInteger(v.archiveAfter) || (v.archiveAfter as number) < 1) {
             errors.push('output.versionsJson.archiveAfter must be a positive integer')
           }
@@ -296,10 +312,11 @@ function validateConfig(c: ChangelogConfig): void {
   if (c.bumpMode === 'custom' && typeof c.customBump !== 'function') {
     throw new Error("bumpMode='custom' requires a customBump function")
   }
-  const anyOutput =
-    c.output.versionsJson || c.output.markdown || c.output.packageJson
+  const anyOutput = c.output.versionsJson || c.output.markdown || c.output.packageJson
   if (!anyOutput) {
-    throw new Error('At least one output target must be enabled (versionsJson | markdown | packageJson).')
+    throw new Error(
+      'At least one output target must be enabled (versionsJson | markdown | packageJson).',
+    )
   }
 }
 

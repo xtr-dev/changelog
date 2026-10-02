@@ -121,9 +121,9 @@ function helpText(): string {
 }
 
 function packageVersion(): string {
-  const pkg = JSON.parse(
-    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
-  ) as { version: string }
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string
+  }
   return pkg.version
 }
 
@@ -192,7 +192,11 @@ async function main(): Promise<void> {
       ...(parsed.positionals[0] ? { version: parsed.positionals[0] } : {}),
     })
     if (!notes) {
-      fail(parsed.positionals[0] ? `no release ${parsed.positionals[0]} recorded` : 'no releases recorded')
+      fail(
+        parsed.positionals[0]
+          ? `no release ${parsed.positionals[0]} recorded`
+          : 'no releases recorded',
+      )
     }
     stdout.write(json ? JSON.stringify(notes, null, 2) + '\n' : notes.markdown)
     return
@@ -236,7 +240,11 @@ async function main(): Promise<void> {
     if (json) {
       stdout.write(JSON.stringify(result, null, 2) + '\n')
     } else {
-      stdout.write(c.dim(`${sym.arrow} dry run — pass `) + c.yellow('--execute') + c.dim(' to write files\n\n'))
+      stdout.write(
+        c.dim(`${sym.arrow} dry run — pass `) +
+          c.yellow('--execute') +
+          c.dim(' to write files\n\n'),
+      )
       printHumanPreview(result)
     }
     return
@@ -280,7 +288,9 @@ function printWarnings(warnings: string[]): void {
 
 function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void {
   if (!result.released || !result.entry) {
-    stdout.write(`${c.dim(sym.arrow)} ${c.dim('no release')} ${c.gray('— current version')} ${c.bold(result.previousVersion)}\n`)
+    stdout.write(
+      `${c.dim(sym.arrow)} ${c.dim('no release')} ${c.gray('— current version')} ${c.bold(result.previousVersion)}\n`,
+    )
     if (result.commits.length > 0) {
       stdout.write(c.dim(`  ${result.commits.length} commits scanned, none triggered a bump\n`))
     }
@@ -319,7 +329,8 @@ function printReleaseSuccess(result: Awaited<ReturnType<typeof runRelease>>): vo
     stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('wrote')} ${f}\n`)
   }
   if (result.git.committed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('commit')}\n`)
-  if (result.git.tag) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('tag')} ${c.cyan(result.git.tag)}\n`)
+  if (result.git.tag)
+    stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('tag')} ${c.cyan(result.git.tag)}\n`)
   if (result.git.pushed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('pushed')}\n`)
 }
 

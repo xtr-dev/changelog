@@ -58,7 +58,9 @@ export function computeNextVersion(
       throw new Error(`releaseAs is not valid semver: ${options.releaseAs}`)
     }
     if (compareSemver(next, currentVersion) <= 0) {
-      throw new Error(`releaseAs ${next} must be greater than the current version ${currentVersion}`)
+      throw new Error(
+        `releaseAs ${next} must be greater than the current version ${currentVersion}`,
+      )
     }
     return { next, level: inferLevel(currentVersion, next) }
   }

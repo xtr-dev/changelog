@@ -48,7 +48,7 @@ export function parseCommit(raw: RawCommit): ParsedCommit {
   }
 
   const m = HEADER_RE.exec(subject)
-  if (!m || !m.groups) {
+  if (!m?.groups) {
     return {
       raw,
       type: 'other',
@@ -111,7 +111,7 @@ function parseBody(body: string): { notes: CommitNote[]; trimmedBody: string } {
     const line = footerCandidate[i]!.trim()
     if (!line) continue
     const tok = FOOTER_TOKEN_RE.exec(line) || FOOTER_HASH_RE.exec(line)
-    if (!tok || !tok.groups) {
+    if (!tok?.groups) {
       // Not a clean footer block — treat the whole "footer candidate" as part
       // of the body and bail.
       return { notes: [], trimmedBody: body.trim() }
@@ -161,7 +161,9 @@ export function cancelReverts(commits: ParsedCommit[]): ParsedCommit[] {
     if (!revert.isRevert) continue
     const hash = REVERTS_RE.exec(revert.raw.body)?.groups?.hash
     if (!hash) continue
-    const target = commits.find((c) => c !== revert && !dropped.has(c) && c.raw.hash.startsWith(hash))
+    const target = commits.find(
+      (c) => c !== revert && !dropped.has(c) && c.raw.hash.startsWith(hash),
+    )
     if (!target) continue
     dropped.add(target)
     dropped.add(revert)
@@ -169,10 +171,7 @@ export function cancelReverts(commits: ParsedCommit[]): ParsedCommit[] {
   return dropped.size === 0 ? commits : commits.filter((c) => !dropped.has(c))
 }
 
-export function filterCommits(
-  commits: ParsedCommit[],
-  opts: FilterOptions,
-): ParsedCommit[] {
+export function filterCommits(commits: ParsedCommit[], opts: FilterOptions): ParsedCommit[] {
   const dropMerges = opts.dropMerges ?? true
   const dropUnconventional = opts.dropUnconventional ?? true
   return cancelReverts(commits).filter((c) => {

@@ -51,12 +51,7 @@ describe('parseCommit', () => {
   })
 
   it('preserves multi-line footer text', () => {
-    const c = parseCommit(
-      raw(
-        'feat: x',
-        'body\n\nBREAKING CHANGE: foo\n  with continuation',
-      ),
-    )
+    const c = parseCommit(raw('feat: x', 'body\n\nBREAKING CHANGE: foo\n  with continuation'))
     const note = c.notes.find((n) => n.title === 'BREAKING CHANGE')
     expect(note?.text).toContain('continuation')
   })
@@ -97,16 +92,12 @@ describe('filterCommits', () => {
 
   it('honors excludeTypes', () => {
     const cs = [make('feat: x'), make('chore: y')]
-    expect(
-      filterCommits(cs, { includeTypes: null, excludeTypes: ['chore'] }),
-    ).toHaveLength(1)
+    expect(filterCommits(cs, { includeTypes: null, excludeTypes: ['chore'] })).toHaveLength(1)
   })
 
   it('honors includeTypes', () => {
     const cs = [make('feat: x'), make('fix: y'), make('docs: z')]
-    expect(
-      filterCommits(cs, { includeTypes: ['feat'], excludeTypes: [] }),
-    ).toHaveLength(1)
+    expect(filterCommits(cs, { includeTypes: ['feat'], excludeTypes: [] })).toHaveLength(1)
   })
 })
 
@@ -120,7 +111,7 @@ describe('reverts', () => {
     body,
   })
 
-  it('types git\'s default revert subject as a revert', () => {
+  it("types git's default revert subject as a revert", () => {
     const c = parseCommit(withHash('b'.repeat(40), 'Revert "feat: thing"'))
     expect(c.type).toBe('revert')
     expect(c.isRevert).toBe(true)

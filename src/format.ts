@@ -58,7 +58,7 @@ export function buildVersionEntry(args: {
     if (!(k in ordered)) ordered[k] = groups[k]
   }
 
-  const commit = commits.length > 0 ? (commits[0]!.raw.shortHash) : null
+  const commit = commits.length > 0 ? commits[0]!.raw.shortHash : null
 
   return {
     version,
@@ -132,7 +132,19 @@ export function formatVersionMarkdown(
 }
 
 const BREAKING_NOTE_TITLES = new Set(['BREAKING CHANGE', 'BREAKING-CHANGE', 'BREAKING'])
-const ISSUE_NOTE_TITLES = new Set(['closes', 'close', 'closed', 'fixes', 'fix', 'fixed', 'resolves', 'resolve', 'resolved', 'refs', 'ref'])
+const ISSUE_NOTE_TITLES = new Set([
+  'closes',
+  'close',
+  'closed',
+  'fixes',
+  'fix',
+  'fixed',
+  'resolves',
+  'resolve',
+  'resolved',
+  'refs',
+  'ref',
+])
 
 function formatChangeLine(c: VersionEntryChange, repo: string | null, inBreaking: boolean): string {
   const scope = c.scope ? `**${c.scope}:** ` : ''
@@ -145,7 +157,9 @@ function formatChangeLine(c: VersionEntryChange, repo: string | null, inBreaking
 
   const refs = (c.notes ?? [])
     .filter((n) => ISSUE_NOTE_TITLES.has(n.title.toLowerCase()))
-    .flatMap((n) => [...n.text.matchAll(/#?(\d+)/g)].map((m) => ({ verb: n.title.toLowerCase(), id: m[1]! })))
+    .flatMap((n) =>
+      [...n.text.matchAll(/#?(\d+)/g)].map((m) => ({ verb: n.title.toLowerCase(), id: m[1]! })),
+    )
   for (const ref of refs) {
     const verb = ref.verb.startsWith('ref') ? 'refs' : 'closes'
     line += repo ? `, ${verb} [#${ref.id}](${repo}/issues/${ref.id})` : `, ${verb} #${ref.id}`
@@ -162,7 +176,10 @@ function formatChangeLine(c: VersionEntryChange, repo: string | null, inBreaking
 
 /** Link bare `#123` references (as squash merges write them) to the issue. */
 function linkIssues(text: string, repo: string): string {
-  return text.replace(/(^|[\s(])#(\d+)\b/g, (_m, pre: string, id: string) => `${pre}[#${id}](${repo}/issues/${id})`)
+  return text.replace(
+    /(^|[\s(])#(\d+)\b/g,
+    (_m, pre: string, id: string) => `${pre}[#${id}](${repo}/issues/${id})`,
+  )
 }
 
 function titleCase(s: string): string {
@@ -180,13 +197,18 @@ export function buildChangelogMarkdown(
 ): string {
   const parts: string[] = []
   parts.push('# Changelog\n')
-  if (preamble && preamble.trim()) {
+  if (preamble?.trim()) {
     parts.push(preamble.trim() + '\n')
   }
   versions.forEach((v, i) => {
     parts.push(formatVersionMarkdown(v, config, versions[i + 1]?.version))
   })
-  return parts.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n'
+  return (
+    parts
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trimEnd() + '\n'
+  )
 }
 
 /**
@@ -199,8 +221,7 @@ export function insertChangelogSection(
   entry: VersionEntry,
   config: ChangelogConfig,
 ): string {
-  const preamble =
-    typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
+  const preamble = typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
   if (existing === null || !existing.trim()) {
     return buildChangelogMarkdown([entry], config, preamble)
   }

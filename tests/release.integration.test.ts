@@ -197,9 +197,9 @@ describe('release (integration)', () => {
     expect(seen).toEqual(['0.1.0', '0.2.0', '0.3.0'])
     expect(new Set(seen).size).toBe(3)
 
-    const store = JSON.parse(
-      readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
-    ) as { versions: { version: string }[] }
+    const store = JSON.parse(readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8')) as {
+      versions: { version: string }[]
+    }
     expect(store.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0', '0.1.0'])
   })
 
@@ -300,9 +300,9 @@ describe('release (integration)', () => {
     const versions = JSON.parse(
       readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
     ) as { versions: Array<{ version: string }> }
-    const archive = JSON.parse(
-      readFileSync(join(repo.cwd, 'changelog/archive.json'), 'utf8'),
-    ) as { versions: Array<{ version: string }> }
+    const archive = JSON.parse(readFileSync(join(repo.cwd, 'changelog/archive.json'), 'utf8')) as {
+      versions: Array<{ version: string }>
+    }
     expect(versions.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0'])
     expect(archive.versions.map((v) => v.version)).toEqual(['0.1.0'])
   })
@@ -377,7 +377,12 @@ describe('release (integration)', () => {
     writeFileSync(
       join(repo.cwd, 'package-lock.json'),
       JSON.stringify(
-        { name: 'app', version: '0.0.0', lockfileVersion: 3, packages: { '': { name: 'app', version: '0.0.0' } } },
+        {
+          name: 'app',
+          version: '0.0.0',
+          lockfileVersion: 3,
+          packages: { '': { name: 'app', version: '0.0.0' } },
+        },
         null,
         2,
       ) + '\n',

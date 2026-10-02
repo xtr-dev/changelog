@@ -65,14 +65,14 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     // Take the highest version any enabled output has already recorded, so
     // successive releases still move forward. Using the max rather than a
     // fixed precedence keeps this monotonic whichever outputs are enabled.
-    const candidates = [
-      await readPackageVersion(cwd, config),
-      head?.version ?? null,
-    ].filter((v): v is string => v !== null)
+    const candidates = [await readPackageVersion(cwd, config), head?.version ?? null].filter(
+      (v): v is string => v !== null,
+    )
 
-    previousVersion = candidates.length > 0
-      ? candidates.reduce((a, b) => (compareSemver(a, b) >= 0 ? a : b))
-      : config.initialVersion
+    previousVersion =
+      candidates.length > 0
+        ? candidates.reduce((a, b) => (compareSemver(a, b) >= 0 ? a : b))
+        : config.initialVersion
 
     if (!config.output.packageJson && !config.output.versionsJson) {
       warnings.push(
@@ -141,10 +141,7 @@ async function readVersionsJsonHead(
   }
 }
 
-async function readPackageVersion(
-  cwd: string,
-  config: ChangelogConfig,
-): Promise<string | null> {
+async function readPackageVersion(cwd: string, config: ChangelogConfig): Promise<string | null> {
   const pkgPath = join(
     cwd,
     typeof config.output.packageJson === 'object' ? config.output.packageJson.path : 'package.json',
@@ -167,15 +164,10 @@ export type PreviewResult = ReleaseResult
 export async function preview(input: ReleaseInput): Promise<PreviewResult> {
   const { config } = input
   const state = await resolveState(input)
-  const { next, level } = computeNextVersion(
-    state.previousVersion,
-    state.filteredCommits,
-    config,
-    {
-      ...(input.preid !== undefined ? { preid: input.preid } : {}),
-      ...(input.releaseAs !== undefined ? { releaseAs: input.releaseAs } : {}),
-    },
-  )
+  const { next, level } = computeNextVersion(state.previousVersion, state.filteredCommits, config, {
+    ...(input.preid !== undefined ? { preid: input.preid } : {}),
+    ...(input.releaseAs !== undefined ? { releaseAs: input.releaseAs } : {}),
+  })
 
   if (level === 'none' || next === state.previousVersion) {
     return {
@@ -246,12 +238,7 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
     const archivePath = resolveOutputPath(cwd, config.output.versionsJson.archivePath)
     const versions = await readVersionsFile(versionsPath)
     const archive = await readArchiveFile(archivePath)
-    const rotated = rotate(
-      versions,
-      archive,
-      result.entry,
-      config.output.versionsJson.archiveAfter,
-    )
+    const rotated = rotate(versions, archive, result.entry, config.output.versionsJson.archiveAfter)
     await writeJson(versionsPath, rotated.versions)
     filesWritten.push(versionsPath)
     if (rotated.archiveChanged) {
@@ -280,19 +267,23 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
 
   if (config.output.packageJson) {
     const pkgPath = resolveOutputPath(cwd, config.output.packageJson.path)
-    if (await updateJsonFile(pkgPath, (pkg) => {
-      pkg.version = result.version
-    })) {
+    if (
+      await updateJsonFile(pkgPath, (pkg) => {
+        pkg.version = result.version
+      })
+    ) {
       filesWritten.push(pkgPath)
     }
     // Keep the lockfile's copy of the root version in step, or the release
     // commit leaves package-lock.json claiming the old version.
     const lockPath = join(dirname(pkgPath), 'package-lock.json')
-    if (await updateJsonFile(lockPath, (lock) => {
-      lock.version = result.version
-      const packages = lock.packages as Record<string, Record<string, unknown>> | undefined
-      if (packages?.['']) packages[''].version = result.version
-    })) {
+    if (
+      await updateJsonFile(lockPath, (lock) => {
+        lock.version = result.version
+        const packages = lock.packages as Record<string, Record<string, unknown>> | undefined
+        if (packages?.['']) packages[''].version = result.version
+      })
+    ) {
       filesWritten.push(lockPath)
     }
   }
@@ -342,8 +333,7 @@ function buildFullChangelogMarkdown(
   archivedVersions: VersionEntry[],
 ): string {
   const all = [...activeVersions, ...archivedVersions]
-  const preamble =
-    typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
+  const preamble = typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
   return buildChangelogMarkdown(all, config, preamble)
 }
 
@@ -363,7 +353,9 @@ export async function releaseNotes(args: {
 
   if (config.output.versionsJson) {
     const versions = await readVersionsFile(resolveOutputPath(cwd, config.output.versionsJson.path))
-    const archive = await readArchiveFile(resolveOutputPath(cwd, config.output.versionsJson.archivePath))
+    const archive = await readArchiveFile(
+      resolveOutputPath(cwd, config.output.versionsJson.archivePath),
+    )
     const all = [...versions.versions, ...archive.versions]
     const index = wanted ? all.findIndex((v) => v.version === wanted) : 0
     const entry = all[index]

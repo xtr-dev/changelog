@@ -4,8 +4,7 @@ import { dirname } from 'node:path'
 
 import type { ArchiveFile, VersionEntry, VersionsFile } from './types.js'
 
-const SCHEMA_URL =
-  'https://unpkg.com/@xtr-dev/changelog/schema/versions.schema.json'
+const SCHEMA_URL = 'https://unpkg.com/@xtr-dev/changelog/schema/versions.schema.json'
 
 export function emptyVersionsFile(): VersionsFile {
   return { $schema: SCHEMA_URL, schemaVersion: 2, versions: [] }

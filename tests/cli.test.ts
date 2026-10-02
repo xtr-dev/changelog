@@ -71,7 +71,10 @@ describe('cli', () => {
     repo.commit('feat: a')
     const r = cli(repo.cwd, 'release', '--tag', '--message', 'release: {version}', '--json')
     expect(r.code).toBe(0)
-    const result = JSON.parse(r.stdout) as { version: string; git: { committed: boolean; tag: string } }
+    const result = JSON.parse(r.stdout) as {
+      version: string
+      git: { committed: boolean; tag: string }
+    }
     expect(result.git).toEqual({ committed: true, tag: 'v0.1.0', pushed: false })
     expect(repo.git(['log', '-1', '--format=%s']).trim()).toBe('release: 0.1.0')
     expect(repo.git(['tag', '--list']).trim()).toBe('v0.1.0')

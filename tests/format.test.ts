@@ -144,7 +144,10 @@ describe('breaking changes in markdown', () => {
     const entry = buildVersionEntry({
       version: '1.0.0',
       date: '2026-05-09',
-      commits: [c('feat(api): drop v1', 'BREAKING CHANGE: v1 endpoints are gone'), c('feat: other')],
+      commits: [
+        c('feat(api): drop v1', 'BREAKING CHANGE: v1 endpoints are gone'),
+        c('feat: other'),
+      ],
       config: cfg,
     })
     const md = formatVersionMarkdown(entry, cfg)

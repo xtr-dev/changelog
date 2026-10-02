@@ -28,7 +28,12 @@ describe('mergeConfig validation', () => {
   it('rejects wrong types and reports every problem at once', () => {
     let message = ''
     try {
-      merge({ bumpMode: 'fast', bumpMap: { feat: 'huge' }, initialVersion: '1.0', excludeTypes: 'chore' })
+      merge({
+        bumpMode: 'fast',
+        bumpMap: { feat: 'huge' },
+        initialVersion: '1.0',
+        excludeTypes: 'chore',
+      })
     } catch (err) {
       message = (err as Error).message
     }
@@ -40,9 +45,13 @@ describe('mergeConfig validation', () => {
 
   it('validates output shapes', () => {
     expect(() =>
-      merge({ output: { versionsJson: { path: 'v.json', archivePath: 'a.json', archiveAfter: 0 } } }),
+      merge({
+        output: { versionsJson: { path: 'v.json', archivePath: 'a.json', archiveAfter: 0 } },
+      }),
     ).toThrow(/archiveAfter must be a positive integer/)
-    expect(() => merge({ output: { packageJson: true } })).toThrow(/output.packageJson must be an object or false/)
+    expect(() => merge({ output: { packageJson: true } })).toThrow(
+      /output.packageJson must be an object or false/,
+    )
   })
 
   it('still requires at least one output', () => {
@@ -70,7 +79,10 @@ describe('loadConfig', () => {
   })
 
   it('reads package.json#changelog', async () => {
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ changelog: { bumpMode: 'commit-count' } }))
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ changelog: { bumpMode: 'commit-count' } }),
+    )
     expect((await loadConfig(dir)).bumpMode).toBe('commit-count')
   })
 
@@ -91,7 +103,9 @@ describe('loadConfig', () => {
   it('detects the repository URL from package.json, then the origin remote', async () => {
     expect((await loadConfig(dir)).repositoryUrl).toBeUndefined()
 
-    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:o/from-remote.git'], { cwd: dir })
+    execFileSync('git', ['remote', 'add', 'origin', 'git@github.com:o/from-remote.git'], {
+      cwd: dir,
+    })
     expect((await loadConfig(dir)).repositoryUrl).toBe('https://github.com/o/from-remote')
 
     writeFileSync(

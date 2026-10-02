@@ -109,8 +109,7 @@ function withPrerelease(target: Semver, current: Semver, preid: string): string 
     target.minor === current.minor &&
     target.patch === current.patch
   const [id, n] = current.prerelease
-  const counter =
-    sameLine && id === preid && n !== undefined && /^\d+$/.test(n) ? Number(n) + 1 : 0
+  const counter = sameLine && id === preid && n !== undefined && /^\d+$/.test(n) ? Number(n) + 1 : 0
   return formatSemver({ ...target, prerelease: [preid, String(counter)], build: [] })
 }
 

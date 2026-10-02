@@ -18,9 +18,7 @@ async function git(args: string[], opts: GitOptions): Promise<string> {
   return stdout
 }
 
-export async function getLastTag(
-  opts: GitOptions & { tagPrefix: string },
-): Promise<string | null> {
+export async function getLastTag(opts: GitOptions & { tagPrefix: string }): Promise<string | null> {
   let raw: string
   try {
     // Only tags reachable from HEAD count. A tag cut on another branch (a
@@ -40,9 +38,7 @@ export async function getLastTag(
   // Prefer the highest semver among tags that look like vX.Y.Z.
   const semverTags = tags
     .filter((t) => isValidSemver(t.slice(opts.tagPrefix.length)))
-    .sort((a, b) =>
-      compareSemver(a.slice(opts.tagPrefix.length), b.slice(opts.tagPrefix.length)),
-    )
+    .sort((a, b) => compareSemver(a.slice(opts.tagPrefix.length), b.slice(opts.tagPrefix.length)))
   if (semverTags.length > 0) return semverTags[semverTags.length - 1]!
   return tags[tags.length - 1]!
 }
@@ -115,11 +111,7 @@ export async function stageAndCommit(
   await git(['commit', '-m', message], opts)
 }
 
-export async function createTag(
-  tag: string,
-  message: string,
-  opts: GitOptions,
-): Promise<void> {
+export async function createTag(tag: string, message: string, opts: GitOptions): Promise<void> {
   await git(['tag', '-a', tag, '-m', message], opts)
 }
 

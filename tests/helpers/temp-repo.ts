@@ -7,6 +7,8 @@ export interface TempRepo {
   cwd: string
   commit: (subject: string, body?: string, file?: { path: string; content: string }) => string
   tag: (name: string) => void
+  /** Run an arbitrary git command in the repo. */
+  git: (args: string[]) => string
   cleanup: () => void
 }
 
@@ -29,6 +31,10 @@ export function createTempRepo(): TempRepo {
     }).toString()
 
   run(['init', '-b', 'main'])
+  // Repo-local identity, so git run by anything else here (the CLI under
+  // test, in a subprocess) can commit on a machine with no global config.
+  run(['config', 'user.name', 'Test'])
+  run(['config', 'user.email', 'test@example.com'])
   run(['config', 'commit.gpgsign', 'false'])
   run(['config', 'tag.gpgsign', 'false'])
   // Anchor commit. Use a non-conventional message so it doesn't influence
@@ -52,6 +58,7 @@ export function createTempRepo(): TempRepo {
     tag: (name) => {
       run(['tag', '-a', name, '-m', `Release ${name}`])
     },
+    git: run,
     cleanup: () => {
       rmSync(dir, { recursive: true, force: true })
     },

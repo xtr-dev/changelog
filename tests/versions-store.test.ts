@@ -19,7 +19,11 @@ const entry = (v: string): VersionEntry => ({
   date: '2026-05-09',
   commit: 'abc',
   breaking: false,
-  groups: { features: [{ type: 'feat', scope: null, description: 'x', commit: 'abc', breaking: false, notes: [] }] },
+  groups: {
+    features: [
+      { type: 'feat', scope: null, description: 'x', commit: 'abc', breaking: false, notes: [] },
+    ],
+  },
 })
 
 describe('rotate', () => {

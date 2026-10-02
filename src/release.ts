@@ -1,11 +1,25 @@
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 import { computeNextVersion } from './bump.js'
 import { resolveOutputPath } from './config.js'
-import { buildChangelogMarkdown, buildVersionEntry } from './format.js'
-import { getCommitsSince, getLastTag } from './git.js'
+import {
+  buildChangelogMarkdown,
+  buildVersionEntry,
+  formatVersionMarkdown,
+  insertChangelogSection,
+} from './format.js'
+import {
+  createTag,
+  getCommitsSince,
+  getCurrentBranch,
+  getLastTag,
+  isAncestorOfHead,
+  isCleanWorkingTree,
+  push as gitPush,
+  stageAndCommit,
+} from './git.js'
 import { filterCommits, parseCommit } from './parse.js'
 import { compareSemver, isValidSemver } from './semver.js'
 import type {
@@ -37,6 +51,11 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
   const warnings: string[] = []
 
   let previousVersion: string
+  // Where the commit scan starts. A tag when there is one; otherwise the last
+  // commit versions.json says it shipped, so an untagged repo does not
+  // re-release its whole history on every run.
+  let rangeStart: string | null = lastTag
+  const head = lastTag ? null : await readVersionsJsonHead(cwd, config)
   if (input.currentVersionOverride) {
     previousVersion = input.currentVersionOverride
   } else if (lastTag) {
@@ -46,14 +65,14 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     // Take the highest version any enabled output has already recorded, so
     // successive releases still move forward. Using the max rather than a
     // fixed precedence keeps this monotonic whichever outputs are enabled.
-    const candidates = [
-      await readPackageVersion(cwd, config),
-      await readVersionsJsonVersion(cwd, config),
-    ].filter((v): v is string => v !== null)
+    const candidates = [await readPackageVersion(cwd, config), head?.version ?? null].filter(
+      (v): v is string => v !== null,
+    )
 
-    previousVersion = candidates.length > 0
-      ? candidates.reduce((a, b) => (compareSemver(a, b) >= 0 ? a : b))
-      : config.initialVersion
+    previousVersion =
+      candidates.length > 0
+        ? candidates.reduce((a, b) => (compareSemver(a, b) >= 0 ? a : b))
+        : config.initialVersion
 
     if (!config.output.packageJson && !config.output.versionsJson) {
       warnings.push(
@@ -68,40 +87,61 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     throw new Error(`Previous version is not valid semver: ${previousVersion}`)
   }
 
-  const raw = await getCommitsSince(lastTag, { cwd })
+  if (head?.commit) {
+    if (await isAncestorOfHead(head.commit, { cwd })) {
+      rangeStart = head.commit
+    } else {
+      warnings.push(
+        `versions.json records ${head.version} at commit ${head.commit}, which is not ` +
+          'in the history of HEAD (rewritten history?). Scanning all commits instead.',
+      )
+    }
+  }
+
+  const raw = await getCommitsSince(rangeStart, { cwd, paths: config.paths })
   const parsed = raw.map(parseCommit)
-  const filtered = filterCommits(parsed, {
-    includeTypes: config.includeTypes,
-    excludeTypes: config.excludeTypes,
-  })
+  const releaseCommit = releaseCommitPattern(config.releaseCommitMessage)
+  const filtered = filterCommits(
+    parsed.filter((c) => !releaseCommit.test(c.raw.subject)),
+    {
+      includeTypes: config.includeTypes,
+      excludeTypes: config.excludeTypes,
+    },
+  )
   return { previousVersion, lastTag, rawCommits: parsed, filteredCommits: filtered, warnings }
 }
 
 /**
- * Newest version recorded in versions.json, if that output is enabled and the
+ * Release commits are bookkeeping, not changes: never let one count toward
+ * the next release. Matches the configured template with any version in it.
+ */
+export function releaseCommitPattern(template: string): RegExp {
+  const escaped = template.split('{version}').map(escapeRegExp).join('\\S+')
+  return new RegExp(`^${escaped}$`)
+}
+
+/**
+ * Newest entry recorded in versions.json, if that output is enabled and the
  * file holds a usable entry. This is the anchor of last resort when the repo
  * has no tags -- versions.json is written on every release, so it is the one
  * artifact guaranteed to reflect what was last shipped.
  */
-async function readVersionsJsonVersion(
+async function readVersionsJsonHead(
   cwd: string,
   config: ChangelogConfig,
-): Promise<string | null> {
+): Promise<VersionEntry | null> {
   if (!config.output.versionsJson) return null
   const versionsPath = resolveOutputPath(cwd, config.output.versionsJson.path)
   try {
     const file = await readVersionsFile(versionsPath)
     const head = file.versions[0]
-    return head && isValidSemver(head.version) ? head.version : null
+    return head && isValidSemver(head.version) ? head : null
   } catch {
     return null
   }
 }
 
-async function readPackageVersion(
-  cwd: string,
-  config: ChangelogConfig,
-): Promise<string | null> {
+async function readPackageVersion(cwd: string, config: ChangelogConfig): Promise<string | null> {
   const pkgPath = join(
     cwd,
     typeof config.output.packageJson === 'object' ? config.output.packageJson.path : 'package.json',
@@ -116,7 +156,7 @@ async function readPackageVersion(
   }
 }
 
-export interface PreviewResult extends ReleaseResult {}
+export type PreviewResult = ReleaseResult
 
 /**
  * Compute what would be released, without writing anything.
@@ -124,11 +164,10 @@ export interface PreviewResult extends ReleaseResult {}
 export async function preview(input: ReleaseInput): Promise<PreviewResult> {
   const { config } = input
   const state = await resolveState(input)
-  const { next, level } = computeNextVersion(
-    state.previousVersion,
-    state.filteredCommits,
-    config,
-  )
+  const { next, level } = computeNextVersion(state.previousVersion, state.filteredCommits, config, {
+    ...(input.preid !== undefined ? { preid: input.preid } : {}),
+    ...(input.releaseAs !== undefined ? { releaseAs: input.releaseAs } : {}),
+  })
 
   if (level === 'none' || next === state.previousVersion) {
     return {
@@ -140,6 +179,7 @@ export async function preview(input: ReleaseInput): Promise<PreviewResult> {
       filesWritten: [],
       commits: state.filteredCommits,
       warnings: state.warnings,
+      git: NO_GIT,
     }
   }
 
@@ -159,22 +199,32 @@ export async function preview(input: ReleaseInput): Promise<PreviewResult> {
     filesWritten: [],
     commits: state.filteredCommits,
     warnings: state.warnings,
+    git: NO_GIT,
   }
 }
 
-export interface ExecuteOptions {
-  /** Files to update on disk. Default: every output enabled in config. */
-}
+const NO_GIT: ReleaseResult['git'] = { committed: false, tag: null, pushed: false }
 
 /**
- * Same as preview, but writes the configured output files. Idempotent: if no
- * release is warranted, no files are written.
+ * Same as preview, but writes the configured output files, then optionally
+ * commits, tags and pushes them (see ReleaseInput.git). Idempotent: if no
+ * release is warranted, nothing is written and no git operation runs.
  */
 export async function release(input: ReleaseInput): Promise<ReleaseResult> {
+  const { cwd, config } = input
+  // Each git step needs the one before it: a tag without the release commit
+  // would point at a tree without the release files.
+  const wantPush = input.git?.push === true
+  const wantTag = input.git?.tag === true || wantPush
+  const wantCommit = input.git?.commit === true || wantTag
+
+  if (wantCommit && !(await isCleanWorkingTree({ cwd }))) {
+    throw new Error('working tree must be clean before committing a release')
+  }
+
   const result = await preview(input)
   if (!result.released || !result.entry) return result
 
-  const { cwd, config } = input
   const filesWritten: string[] = []
 
   // Rotate exactly once. Both versions.json and CHANGELOG.md are rendered from
@@ -188,12 +238,7 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
     const archivePath = resolveOutputPath(cwd, config.output.versionsJson.archivePath)
     const versions = await readVersionsFile(versionsPath)
     const archive = await readArchiveFile(archivePath)
-    const rotated = rotate(
-      versions,
-      archive,
-      result.entry,
-      config.output.versionsJson.archiveAfter,
-    )
+    const rotated = rotate(versions, archive, result.entry, config.output.versionsJson.archiveAfter)
     await writeJson(versionsPath, rotated.versions)
     filesWritten.push(versionsPath)
     if (rotated.archiveChanged) {
@@ -205,25 +250,81 @@ export async function release(input: ReleaseInput): Promise<ReleaseResult> {
   }
 
   if (config.output.markdown) {
-    const md = buildFullChangelogMarkdown(config, activeVersions, archivedVersions)
     const mdPath = resolveOutputPath(cwd, config.output.markdown.path)
+    // With versions.json on, CHANGELOG.md is a pure rendering of it and is
+    // rebuilt in full. Without it, the markdown file is the only history there
+    // is, so the new section is inserted and everything else is kept.
+    const md = config.output.versionsJson
+      ? buildFullChangelogMarkdown(config, activeVersions, archivedVersions)
+      : insertChangelogSection(
+          existsSync(mdPath) ? await readFile(mdPath, 'utf8') : null,
+          result.entry,
+          config,
+        )
     await writeFile(mdPath, md, 'utf8')
     filesWritten.push(mdPath)
   }
 
   if (config.output.packageJson) {
     const pkgPath = resolveOutputPath(cwd, config.output.packageJson.path)
-    if (existsSync(pkgPath)) {
-      const raw = await readFile(pkgPath, 'utf8')
-      const trailingNewline = raw.endsWith('\n') ? '\n' : ''
-      const pkg = JSON.parse(raw) as Record<string, unknown>
-      pkg.version = result.version
-      await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + trailingNewline, 'utf8')
+    if (
+      await updateJsonFile(pkgPath, (pkg) => {
+        pkg.version = result.version
+      })
+    ) {
       filesWritten.push(pkgPath)
+    }
+    // Keep the lockfile's copy of the root version in step, or the release
+    // commit leaves package-lock.json claiming the old version.
+    const lockPath = join(dirname(pkgPath), 'package-lock.json')
+    if (
+      await updateJsonFile(lockPath, (lock) => {
+        lock.version = result.version
+        const packages = lock.packages as Record<string, Record<string, unknown>> | undefined
+        if (packages?.['']) packages[''].version = result.version
+      })
+    ) {
+      filesWritten.push(lockPath)
     }
   }
 
-  return { ...result, filesWritten }
+  const git = { ...NO_GIT }
+  if (wantCommit) {
+    const message = config.releaseCommitMessage.replace(/\{version\}/g, result.version)
+    await stageAndCommit(message, filesWritten, { cwd })
+    git.committed = true
+  }
+  if (wantTag) {
+    const tagName = `${config.tagPrefix}${result.version}`
+    await createTag(tagName, `Release ${tagName}`, { cwd })
+    git.tag = tagName
+  }
+  if (wantPush) {
+    const remote = input.git?.remote ?? 'origin'
+    const branch = input.git?.branch ?? (await getCurrentBranch({ cwd }))
+    await gitPush(remote, branch, { cwd, followTags: true })
+    git.pushed = true
+  }
+
+  return { ...result, filesWritten, git }
+}
+
+/**
+ * Rewrite a JSON file in place, preserving its indentation and trailing
+ * newline. Returns false when the file does not exist.
+ */
+async function updateJsonFile(
+  path: string,
+  mutate: (data: Record<string, unknown>) => void,
+): Promise<boolean> {
+  if (!existsSync(path)) return false
+  const raw = await readFile(path, 'utf8')
+  const trailingNewline = raw.endsWith('\n') ? '\n' : ''
+  const indent = /^[ \t]+(?=")/m.exec(raw)?.[0] ?? '  '
+  const data = JSON.parse(raw) as Record<string, unknown>
+  mutate(data)
+  await writeFile(path, JSON.stringify(data, null, indent) + trailingNewline, 'utf8')
+  return true
 }
 
 function buildFullChangelogMarkdown(
@@ -232,7 +333,57 @@ function buildFullChangelogMarkdown(
   archivedVersions: VersionEntry[],
 ): string {
   const all = [...activeVersions, ...archivedVersions]
-  const preamble =
-    typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
+  const preamble = typeof config.output.markdown === 'object' ? config.output.markdown.preamble : ''
   return buildChangelogMarkdown(all, config, preamble)
+}
+
+/**
+ * Release notes for one version (default: the newest), as markdown without the
+ * version heading -- ready for a GitHub Release body. Read from versions.json
+ * (and its archive) when enabled, otherwise from CHANGELOG.md. Returns null
+ * when the version is not recorded.
+ */
+export async function releaseNotes(args: {
+  cwd: string
+  config: ChangelogConfig
+  version?: string
+}): Promise<{ version: string; markdown: string } | null> {
+  const { cwd, config } = args
+  const wanted = args.version?.replace(new RegExp(`^${escapeRegExp(config.tagPrefix)}`), '')
+
+  if (config.output.versionsJson) {
+    const versions = await readVersionsFile(resolveOutputPath(cwd, config.output.versionsJson.path))
+    const archive = await readArchiveFile(
+      resolveOutputPath(cwd, config.output.versionsJson.archivePath),
+    )
+    const all = [...versions.versions, ...archive.versions]
+    const index = wanted ? all.findIndex((v) => v.version === wanted) : 0
+    const entry = all[index]
+    if (!entry) return null
+    const section = formatVersionMarkdown(entry, config, all[index + 1]?.version)
+    return { version: entry.version, markdown: stripHeading(section) }
+  }
+
+  if (config.output.markdown) {
+    const mdPath = resolveOutputPath(cwd, config.output.markdown.path)
+    if (!existsSync(mdPath)) return null
+    const md = await readFile(mdPath, 'utf8')
+    const headings = [...md.matchAll(/^## \[([^\]]+)\].*$/gm)]
+    const index = wanted ? headings.findIndex((h) => h[1] === wanted) : 0
+    const heading = headings[index]
+    if (!heading) return null
+    const start = heading.index! + heading[0].length
+    const end = headings[index + 1]?.index ?? md.length
+    return { version: heading[1]!, markdown: md.slice(start, end).trim() + '\n' }
+  }
+
+  return null
+}
+
+function stripHeading(section: string): string {
+  return section.replace(/^## .*\n/, '').trim() + '\n'
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

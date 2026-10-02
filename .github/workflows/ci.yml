@@ -8,13 +8,70 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: [20, 22]
+        node: [20, 22, 24]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+        if: matrix.node != 22
+      - run: npm run test:coverage
+        if: matrix.node == 22
       - run: npm run build
+
+  # Runs action.yml itself against a throwaway repo, with the CLI built from
+  # this checkout. The commit message carries a quote and a command
+  # substitution: they must end up in the commit verbatim, never executed.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci && npm run build
+
+      - name: Create fixture repo
+        id: fixture
+        run: |
+          set -euo pipefail
+          FIXTURE="$RUNNER_TEMP/fixture"
+          mkdir -p "$FIXTURE" && cd "$FIXTURE"
+          git init -q -b main
+          git config user.name ci && git config user.email ci@example.com
+          npm init -y >/dev/null && npm pkg set version=0.0.0
+          npm i -D "$GITHUB_WORKSPACE" >/dev/null
+          echo node_modules > .gitignore
+          git add -A && git commit -q -m "chore: scaffold"
+          git commit -q --allow-empty -m "feat(api): add endpoint"
+          echo "dir=$FIXTURE" >> "$GITHUB_OUTPUT"
+
+      - name: Run the action
+        id: release
+        uses: ./
+        with:
+          cwd: ${{ steps.fixture.outputs.dir }}
+          package-version: local
+          push: 'false'
+          message: "chore(release): v{version} it's $(touch pwned) [skip ci]"
+
+      - name: Check outputs and side effects
+        working-directory: ${{ steps.fixture.outputs.dir }}
+        env:
+          RELEASED: ${{ steps.release.outputs.released }}
+          VERSION: ${{ steps.release.outputs.version }}
+          TAG: ${{ steps.release.outputs.tag }}
+          CHANGES: ${{ steps.release.outputs.changes-json }}
+        run: |
+          set -euo pipefail
+          test "$RELEASED" = "true"
+          test "$VERSION" = "0.1.0"
+          test "$TAG" = "v0.1.0"
+          test ! -e pwned
+          test "$(git log -1 --format=%s)" = "chore(release): v0.1.0 it's \$(touch pwned) [skip ci]"
+          test "$(git tag --list)" = "v0.1.0"
+          echo "$CHANGES" | node -e 'const e = JSON.parse(require("fs").readFileSync(0, "utf8")); if (e.version !== "0.1.0") process.exit(1)'

@@ -13,6 +13,5 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   shims: false,
-  banner: ({ format }) =>
-    format === 'esm' ? { js: '#!/usr/bin/env node' } : {},
+  banner: ({ format }) => (format === 'esm' ? { js: '#!/usr/bin/env node' } : {}),
 })

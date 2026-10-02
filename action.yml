@@ -9,15 +9,17 @@ inputs:
   node-version:
     description: 'Node.js version to use.'
     required: false
-    default: '20'
+    default: '22'
   cwd:
     description: 'Working directory.'
     required: false
     default: '.'
   package-version:
-    description: 'Version of @xtr-dev/changelog to install. Use "local" to use the workspace install.'
+    description: >-
+      Version of @xtr-dev/changelog to install. Empty (the default) installs the
+      version matching this action's ref; "local" uses the workspace install.
     required: false
-    default: 'latest'
+    default: ''
   commit:
     description: 'Create a release commit (true/false).'
     required: false
@@ -42,6 +44,22 @@ inputs:
     description: 'Commit message template. {version} is substituted.'
     required: false
     default: 'chore(release): v{version} [skip ci]'
+  preid:
+    description: 'Cut a pre-release with this identifier (e.g. beta → 1.3.0-beta.0).'
+    required: false
+    default: ''
+  release-as:
+    description: 'Release exactly this version (e.g. 1.0.0).'
+    required: false
+    default: ''
+  github-release:
+    description: 'Create a GitHub Release for the new tag, with the changelog entry as notes (true/false). Needs tag and push.'
+    required: false
+    default: 'false'
+  github-token:
+    description: 'Token used to create the GitHub Release. Needs contents: write.'
+    required: false
+    default: ${{ github.token }}
   git-user-name:
     description: 'Git committer name.'
     required: false
@@ -61,61 +79,127 @@ outputs:
   previous-version:
     description: 'The previous version.'
     value: ${{ steps.run.outputs.previous-version }}
+  tag:
+    description: 'The tag created, or empty string if none.'
+    value: ${{ steps.run.outputs.tag }}
   changes-json:
     description: 'The new entry as JSON, or empty string if no release.'
     value: ${{ steps.run.outputs.changes-json }}
+  release-url:
+    description: 'URL of the GitHub Release, if one was created.'
+    value: ${{ steps.github-release.outputs.url }}
 
+# Every input reaches the scripts through env, never by ${{ }} interpolation
+# into the script text: an input containing a quote or $(...) must stay data.
 runs:
   using: 'composite'
   steps:
     - name: Setup Node
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: ${{ inputs.node-version }}
 
     - name: Configure git
       shell: bash
-      run: |
-        git config user.name '${{ inputs.git-user-name }}'
-        git config user.email '${{ inputs.git-user-email }}'
       working-directory: ${{ inputs.cwd }}
+      env:
+        GIT_USER_NAME: ${{ inputs.git-user-name }}
+        GIT_USER_EMAIL: ${{ inputs.git-user-email }}
+      run: |
+        git config user.name "$GIT_USER_NAME"
+        git config user.email "$GIT_USER_EMAIL"
 
     - name: Install xtr-changelog
       shell: bash
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
       run: |
-        if [ "${{ inputs.package-version }}" = "local" ]; then
+        set -euo pipefail
+        if [ "$PACKAGE_VERSION" = "local" ]; then
           echo "Using local install."
-        else
-          npm i -g "@xtr-dev/changelog@${{ inputs.package-version }}"
+          exit 0
         fi
+        if [ -z "$PACKAGE_VERSION" ]; then
+          PACKAGE_VERSION=$(node -p "require(process.argv[1]).version" "$GITHUB_ACTION_PATH/package.json")
+        fi
+        npm i -g "@xtr-dev/changelog@$PACKAGE_VERSION"
 
     - name: Run release
       id: run
       shell: bash
       working-directory: ${{ inputs.cwd }}
+      env:
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+        INPUT_COMMIT: ${{ inputs.commit }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_PUSH: ${{ inputs.push }}
+        INPUT_REMOTE: ${{ inputs.remote }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+        INPUT_PREID: ${{ inputs.preid }}
+        INPUT_RELEASE_AS: ${{ inputs.release-as }}
       run: |
         set -euo pipefail
-        FLAGS="release --execute --json"
-        if [ "${{ inputs.commit }}" = "true" ]; then FLAGS="$FLAGS --commit"; fi
-        if [ "${{ inputs.tag }}" = "true" ]; then FLAGS="$FLAGS --tag"; fi
-        if [ "${{ inputs.push }}" = "true" ]; then FLAGS="$FLAGS --push"; fi
-        FLAGS="$FLAGS --remote ${{ inputs.remote }}"
-        if [ -n "${{ inputs.branch }}" ]; then FLAGS="$FLAGS --branch ${{ inputs.branch }}"; fi
-        FLAGS="$FLAGS --message '${{ inputs.message }}'"
+        if [ "$PACKAGE_VERSION" = "local" ]; then
+          CLI=(npx --no-install xtr-changelog)
+        else
+          CLI=(xtr-changelog)
+        fi
 
-        OUT=$(eval xtr-changelog $FLAGS)
+        ARGS=(release --execute --json --remote "$INPUT_REMOTE" --message "$INPUT_MESSAGE")
+        if [ "$INPUT_COMMIT" = "true" ]; then ARGS+=(--commit); fi
+        if [ "$INPUT_TAG" = "true" ]; then ARGS+=(--tag); fi
+        if [ "$INPUT_PUSH" = "true" ]; then ARGS+=(--push); fi
+        if [ -n "$INPUT_BRANCH" ]; then ARGS+=(--branch "$INPUT_BRANCH"); fi
+        if [ -n "$INPUT_PREID" ]; then ARGS+=(--preid "$INPUT_PREID"); fi
+        if [ -n "$INPUT_RELEASE_AS" ]; then ARGS+=(--release-as "$INPUT_RELEASE_AS"); fi
+
+        OUT=$("${CLI[@]}" "${ARGS[@]}")
         echo "$OUT"
 
-        RELEASED=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.released?'true':'false')" "$OUT")
-        VERSION=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.version||'')" "$OUT")
-        PREV=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.previousVersion||'')" "$OUT")
-        ENTRY=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.entry?JSON.stringify(j.entry):'')" "$OUT")
+        RESULT="$OUT" node -e '
+          const fs = require("node:fs")
+          const crypto = require("node:crypto")
+          const j = JSON.parse(process.env.RESULT)
+          const eof = "EOF_" + crypto.randomBytes(8).toString("hex")
+          const lines = [
+            `released=${j.released ? "true" : "false"}`,
+            `version=${j.version || ""}`,
+            `previous-version=${j.previousVersion || ""}`,
+            `tag=${(j.git && j.git.tag) || ""}`,
+            `changes-json<<${eof}`,
+            j.entry ? JSON.stringify(j.entry) : "",
+            eof,
+          ]
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, lines.join("\n") + "\n")
+        '
 
-        {
-          echo "released=$RELEASED"
-          echo "version=$VERSION"
-          echo "previous-version=$PREV"
-          echo "changes-json<<__EOF__"
-          echo "$ENTRY"
-          echo "__EOF__"
-        } >> "$GITHUB_OUTPUT"
+    - name: Create GitHub Release
+      id: github-release
+      if: inputs.github-release == 'true' && steps.run.outputs.released == 'true'
+      shell: bash
+      working-directory: ${{ inputs.cwd }}
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        GH_REPO: ${{ github.repository }}
+        PACKAGE_VERSION: ${{ inputs.package-version }}
+        INPUT_PUSH: ${{ inputs.push }}
+        TAG: ${{ steps.run.outputs.tag }}
+        VERSION: ${{ steps.run.outputs.version }}
+      run: |
+        set -euo pipefail
+        if [ -z "$TAG" ] || [ "$INPUT_PUSH" != "true" ]; then
+          echo "::warning::github-release needs tag: true and push: true; skipping."
+          exit 0
+        fi
+        if [ "$PACKAGE_VERSION" = "local" ]; then
+          CLI=(npx --no-install xtr-changelog)
+        else
+          CLI=(xtr-changelog)
+        fi
+        NOTES="$RUNNER_TEMP/xtr-changelog-notes.md"
+        "${CLI[@]}" notes "$VERSION" > "$NOTES"
+        FLAGS=()
+        case "$VERSION" in *-*) FLAGS+=(--prerelease) ;; esac
+        URL=$(gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$NOTES" "${FLAGS[@]}")
+        echo "url=$URL" >> "$GITHUB_OUTPUT"

@@ -18,14 +18,16 @@ async function git(args: string[], opts: GitOptions): Promise<string> {
   return stdout
 }
 
-export async function getLastTag(
-  opts: GitOptions & { tagPrefix: string },
-): Promise<string | null> {
+export async function getLastTag(opts: GitOptions & { tagPrefix: string }): Promise<string | null> {
   let raw: string
   try {
-    raw = await git(['tag', '--list', `${opts.tagPrefix}*`], opts)
-  } catch {
-    return null
+    // Only tags reachable from HEAD count. A tag cut on another branch (a
+    // newer major on `next`, say) must not become the base for a hotfix here.
+    raw = await git(['tag', '--list', '--merged', 'HEAD', `${opts.tagPrefix}*`], opts)
+  } catch (err) {
+    // A repo with no commits has no HEAD, so no tags can be reachable.
+    if (isNoHeadError(err)) return null
+    throw err
   }
   const tags = raw
     .split('\n')
@@ -36,9 +38,7 @@ export async function getLastTag(
   // Prefer the highest semver among tags that look like vX.Y.Z.
   const semverTags = tags
     .filter((t) => isValidSemver(t.slice(opts.tagPrefix.length)))
-    .sort((a, b) =>
-      compareSemver(a.slice(opts.tagPrefix.length), b.slice(opts.tagPrefix.length)),
-    )
+    .sort((a, b) => compareSemver(a.slice(opts.tagPrefix.length), b.slice(opts.tagPrefix.length)))
   if (semverTags.length > 0) return semverTags[semverTags.length - 1]!
   return tags[tags.length - 1]!
 }
@@ -46,22 +46,34 @@ export async function getLastTag(
 const DELIMITER = 'COMMIT'
 const FIELD = 'FIELD'
 
+function isNoHeadError(err: unknown): boolean {
+  const stderr = (err as { stderr?: string }).stderr ?? ''
+  return (
+    /does not have any commits yet/.test(stderr) ||
+    /ambiguous argument 'HEAD'/.test(stderr) ||
+    /malformed object name:? .?HEAD/i.test(stderr)
+  )
+}
+
 export async function getCommitsSince(
   ref: string | null,
-  opts: GitOptions,
+  opts: GitOptions & { paths?: string[] },
 ): Promise<RawCommit[]> {
   const range = ref ? `${ref}..HEAD` : 'HEAD'
   const format = ['%H', '%h', '%an', '%aI', '%s', '%b'].join(FIELD) + DELIMITER
 
+  const args = ['log', `--format=${format}`, range]
+  if (opts.paths && opts.paths.length > 0) args.push('--', ...opts.paths)
+
   let raw: string
   try {
-    raw = await git(['log', `--format=${format}`, range], opts)
+    raw = await git(args, opts)
   } catch (err) {
-    // No commits yet, or invalid range.
-    if ((err as { stderr?: string }).stderr?.includes('unknown revision')) {
-      return []
-    }
-    return []
+    // An empty repository has nothing to release. Anything else (git missing,
+    // a bad ref, a corrupt repo) is a real problem and must not masquerade as
+    // "nothing to release".
+    if (isNoHeadError(err)) return []
+    throw err
   }
 
   const out: RawCommit[] = []
@@ -99,11 +111,7 @@ export async function stageAndCommit(
   await git(['commit', '-m', message], opts)
 }
 
-export async function createTag(
-  tag: string,
-  message: string,
-  opts: GitOptions,
-): Promise<void> {
+export async function createTag(tag: string, message: string, opts: GitOptions): Promise<void> {
   await git(['tag', '-a', tag, '-m', message], opts)
 }
 
@@ -119,6 +127,25 @@ export async function push(
   await git(args, opts)
   if (opts.tags && !opts.followTags) {
     await git(['push', '--atomic', remote, '--tags'], opts)
+  }
+}
+
+/** URL of a remote, or null if it does not exist. */
+export async function getRemoteUrl(remote: string, opts: GitOptions): Promise<string | null> {
+  try {
+    return (await git(['remote', 'get-url', remote], opts)).trim() || null
+  } catch {
+    return null
+  }
+}
+
+/** True when `ancestor` is reachable from HEAD. */
+export async function isAncestorOfHead(ancestor: string, opts: GitOptions): Promise<boolean> {
+  try {
+    await git(['merge-base', '--is-ancestor', ancestor, 'HEAD'], opts)
+    return true
+  } catch {
+    return false
   }
 }
 

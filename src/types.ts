@@ -39,6 +39,8 @@ export interface VersionEntryChange {
   scope: string | null
   description: string
   commit: string
+  /** Full SHA, used for commit links. Absent in entries written by older versions. */
+  hash?: string
   author?: string
   breaking: boolean
   notes: CommitNote[]
@@ -94,6 +96,20 @@ export interface ChangelogConfig {
   /** Starting version when no prior tags exist. Default '0.0.0'. */
   initialVersion: string
 
+  /**
+   * Cut pre-releases with this identifier (e.g. 'beta' → 1.3.0-beta.0). Unset
+   * (the default) for stable releases; running without it from a pre-release
+   * graduates the line (1.3.0-beta.2 → 1.3.0).
+   */
+  prerelease?: string
+
+  /**
+   * While the major version is 0, treat breaking changes as minor bumps
+   * instead of jumping to 1.0.0. Use `--release-as 1.0.0` to leave 0.x.
+   * Default false.
+   */
+  bumpMinorPreMajor?: boolean
+
   /** Map commit type → bump level (semver mode). Breaking always wins. */
   bumpMap: Record<string, BumpLevel>
 
@@ -113,8 +129,27 @@ export interface ChangelogConfig {
     packageJson: { path: string } | false
   }
 
+  /**
+   * Base URL of the repository (e.g. https://github.com/o/r), used to link
+   * commits, issues and version comparisons in the markdown. Detected from
+   * package.json#repository or the origin remote when unset; false disables links.
+   */
+  repositoryUrl?: string | false
+
   /** Tag prefix. Default 'v'. */
   tagPrefix: string
+
+  /**
+   * Message of the release commit; {version} is substituted. Commits matching
+   * it never count toward a release. Default 'chore(release): v{version} [skip ci]'.
+   */
+  releaseCommitMessage: string
+
+  /**
+   * Only consider commits that touch these paths (relative to cwd). Use with a
+   * per-package tagPrefix to release one package of a monorepo. Default: all.
+   */
+  paths?: string[]
 
   /**
    * Override the markdown formatter for a single version entry.
@@ -131,6 +166,23 @@ export interface ReleaseInput {
   now?: Date
   /** Override the current version (otherwise read from package.json or last tag). */
   currentVersionOverride?: string
+  /** Cut a pre-release with this identifier; overrides config.prerelease. */
+  preid?: string
+  /** Release exactly this version, even with no release-worthy commits. */
+  releaseAs?: string
+  /**
+   * Git steps for `release` to run after writing files. Each implies the ones
+   * before it (push → tag → commit). The working tree must be clean.
+   */
+  git?: {
+    commit?: boolean
+    tag?: boolean
+    push?: boolean
+    /** Default 'origin'. */
+    remote?: string
+    /** Default: the current branch. */
+    branch?: string
+  }
 }
 
 export interface ReleaseResult {
@@ -150,4 +202,11 @@ export interface ReleaseResult {
    * to stderr; they never stop a release.
    */
   warnings: string[]
+  /** What `release` did in git. All false/null for `preview`. */
+  git: {
+    committed: boolean
+    /** The tag created, if any. */
+    tag: string | null
+    pushed: boolean
+  }
 }

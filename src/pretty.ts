@@ -69,9 +69,6 @@ export const sym = {
   get warn() {
     return enabled ? '⚠' : '!'
   },
-  get rocket() {
-    return enabled ? '🚀' : '*'
-  },
 }
 
 /** Color a bump level by severity. */

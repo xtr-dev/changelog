@@ -1,55 +1,79 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { argv, cwd as processCwd, exit, stderr, stdout } from 'node:process'
+import { parseArgs as parseNodeArgs } from 'node:util'
 
 import { loadConfig } from './config.js'
-import {
-  createTag,
-  getCurrentBranch,
-  isCleanWorkingTree,
-  push as gitPush,
-  stageAndCommit,
-} from './git.js'
 import { c, colorGroup, colorLevel, setColor, sym } from './pretty.js'
-import { preview as runPreview, release as runRelease } from './release.js'
+import { preview as runPreview, release as runRelease, releaseNotes } from './release.js'
+
+const OPTIONS = {
+  cwd: { type: 'string' },
+  json: { type: 'boolean' },
+  'no-color': { type: 'boolean' },
+  help: { type: 'boolean', short: 'h' },
+  version: { type: 'boolean', short: 'v' },
+  preid: { type: 'string' },
+  'release-as': { type: 'string' },
+  execute: { type: 'boolean' },
+  commit: { type: 'boolean' },
+  tag: { type: 'boolean' },
+  push: { type: 'boolean' },
+  remote: { type: 'string' },
+  branch: { type: 'string' },
+  message: { type: 'string' },
+} as const
+
+type OptionName = keyof typeof OPTIONS
+
+const COMMON: OptionName[] = ['cwd', 'json', 'no-color', 'help', 'version']
+const VERSIONING: OptionName[] = ['preid', 'release-as']
+const COMMAND_OPTIONS: Record<string, OptionName[]> = {
+  preview: [...COMMON, ...VERSIONING],
+  unreleased: [...COMMON, ...VERSIONING],
+  release: [
+    ...COMMON,
+    ...VERSIONING,
+    'execute',
+    'commit',
+    'tag',
+    'push',
+    'remote',
+    'branch',
+    'message',
+  ],
+  notes: COMMON,
+  init: COMMON,
+  help: COMMON,
+}
 
 interface ParsedArgs {
   command: string
-  flags: Record<string, string | boolean>
+  flags: { [K in OptionName]?: (typeof OPTIONS)[K]['type'] extends 'string' ? string : boolean }
   positionals: string[]
 }
 
 function parseArgs(args: string[]): ParsedArgs {
-  const [command = 'help', ...rest] = args
-  const flags: Record<string, string | boolean> = {}
-  const positionals: string[] = []
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]!
-    if (a === '--') {
-      positionals.push(...rest.slice(i + 1))
-      break
-    }
-    if (a.startsWith('--')) {
-      const eq = a.indexOf('=')
-      if (eq >= 0) {
-        flags[a.slice(2, eq)] = a.slice(eq + 1)
-      } else {
-        const next = rest[i + 1]
-        if (next && !next.startsWith('-')) {
-          flags[a.slice(2)] = next
-          i++
-        } else {
-          flags[a.slice(2)] = true
-        }
+  // Strict: an unknown or misspelled flag (`--exceute`) is an error rather
+  // than a silent dry run.
+  const { values, positionals } = parseNodeArgs({
+    args,
+    options: OPTIONS,
+    allowPositionals: true,
+    strict: true,
+  })
+  const [command = values.version ? 'version' : 'help', ...rest] = positionals
+  const flags = values as ParsedArgs['flags']
+  const allowed = COMMAND_OPTIONS[command]
+  if (allowed) {
+    for (const name of Object.keys(flags) as OptionName[]) {
+      if (!allowed.includes(name)) {
+        throw new Error(`option --${name} does not apply to "${command}"`)
       }
-    } else if (a.startsWith('-') && a.length > 1) {
-      flags[a.slice(1)] = true
-    } else {
-      positionals.push(a)
     }
   }
-  return { command, flags, positionals }
+  return { command, flags, positionals: rest }
 }
 
 function helpText(): string {
@@ -66,6 +90,7 @@ function helpText(): string {
     `  ${cmd('preview')}                     Show what the next release would contain (no writes)`,
     `  ${cmd('release')}                     Apply the release`,
     `  ${cmd('unreleased')}                  Print the would-be next entry as JSON`,
+    `  ${cmd('notes')} [version]             Print a release's notes as markdown (default: newest)`,
     `  ${cmd('init')}                        Scaffold config`,
     `  ${cmd('help')}                        Show this help`,
     '',
@@ -73,12 +98,17 @@ function helpText(): string {
     `  ${flag('--cwd')} <path>                Working directory (default: process.cwd)`,
     `  ${flag('--json')}                      Emit JSON instead of human-readable text`,
     `  ${flag('--no-color')}                  Disable colored output`,
+    `  ${flag('-v, --version')}               Print the xtr-changelog version`,
+    '',
+    h('Versioning options') + c.dim(' (preview, unreleased, release)'),
+    `  ${flag('--preid')} <id>                Cut a pre-release, e.g. beta → 1.3.0-beta.0`,
+    `  ${flag('--release-as')} <version>      Release exactly this version (e.g. 1.0.0)`,
     '',
     h('Release options'),
     `  ${flag('--execute')}                   Actually write files (default: dry-run)`,
     `  ${flag('--commit')}                    Create a release commit (implies --execute)`,
-    `  ${flag('--tag')}                       Create an annotated tag (implies --execute)`,
-    `  ${flag('--push')}                      Push commit + tag (implies --execute, --commit, --tag)`,
+    `  ${flag('--tag')}                       Create an annotated tag (implies --commit)`,
+    `  ${flag('--push')}                      Push commit + tag (implies --tag)`,
     `  ${flag('--remote')} <name>             Remote to push to (default: origin)`,
     `  ${flag('--branch')} <name>             Branch to push (default: current branch)`,
     `  ${flag('--message')} <tpl>             Commit message template; {version} is substituted`,
@@ -90,28 +120,57 @@ function helpText(): string {
   ].join('\n')
 }
 
+function packageVersion(): string {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+    version: string
+  }
+  return pkg.version
+}
+
 function fail(msg: string, code = 1): never {
   stderr.write(`${c.red(sym.cross)} ${c.bold('xtr-changelog')}: ${msg}\n`)
   exit(code)
 }
 
 async function main(): Promise<void> {
-  const parsed = parseArgs(argv.slice(2))
-  const cwd = resolve(
-    typeof parsed.flags.cwd === 'string' ? parsed.flags.cwd : processCwd(),
-  )
-  const json = parsed.flags.json === true
-  const command = parsed.command
+  // `xtr-changelog preview | head` closes stdout early; that is not an error.
+  stdout.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') exit(0)
+    throw err
+  })
+
+  let parsed: ParsedArgs
+  try {
+    parsed = parseArgs(argv.slice(2))
+  } catch (err) {
+    fail(`${err instanceof Error ? err.message : String(err)} (see xtr-changelog help)`)
+  }
+  const { command, flags } = parsed
+  const cwd = resolve(flags.cwd ?? processCwd())
+  const json = flags.json === true
 
   // Color discipline: JSON output and --no-color always disable.
   // Beyond that, defer to the TTY/NO_COLOR/FORCE_COLOR detection in pretty.ts.
-  if (json || parsed.flags['no-color'] === true) {
+  if (json || flags['no-color'] === true) {
     setColor(false)
   }
 
-  if (command === 'help' || command === '--help' || command === '-h') {
+  if (command === 'version' || flags.version) {
+    stdout.write(packageVersion() + '\n')
+    return
+  }
+
+  if (command === 'help' || flags.help) {
     stdout.write(helpText())
     return
+  }
+
+  if (!(command in COMMAND_OPTIONS)) {
+    fail(`unknown command: ${command} (see xtr-changelog help)`)
+  }
+  const maxPositionals = command === 'notes' ? 1 : 0
+  if (parsed.positionals.length > maxPositionals) {
+    fail(`unexpected argument: ${parsed.positionals[maxPositionals]}`)
   }
 
   if (command === 'init') {
@@ -120,9 +179,31 @@ async function main(): Promise<void> {
   }
 
   const config = await loadConfig(cwd)
+  if (flags.message !== undefined) config.releaseCommitMessage = flags.message
+  const versioning = {
+    ...(flags.preid !== undefined ? { preid: flags.preid } : {}),
+    ...(flags['release-as'] !== undefined ? { releaseAs: flags['release-as'] } : {}),
+  }
+
+  if (command === 'notes') {
+    const notes = await releaseNotes({
+      cwd,
+      config,
+      ...(parsed.positionals[0] ? { version: parsed.positionals[0] } : {}),
+    })
+    if (!notes) {
+      fail(
+        parsed.positionals[0]
+          ? `no release ${parsed.positionals[0]} recorded`
+          : 'no releases recorded',
+      )
+    }
+    stdout.write(json ? JSON.stringify(notes, null, 2) + '\n' : notes.markdown)
+    return
+  }
 
   if (command === 'preview') {
-    const result = await runPreview({ cwd, config })
+    const result = await runPreview({ cwd, config, ...versioning })
     printWarnings(result.warnings)
     if (json) {
       stdout.write(JSON.stringify(result, null, 2) + '\n')
@@ -133,7 +214,7 @@ async function main(): Promise<void> {
   }
 
   if (command === 'unreleased') {
-    const result = await runPreview({ cwd, config })
+    const result = await runPreview({ cwd, config, ...versioning })
     printWarnings(result.warnings)
     if (!result.released || !result.entry) {
       stdout.write(JSON.stringify({ released: false }) + '\n')
@@ -147,67 +228,52 @@ async function main(): Promise<void> {
     return
   }
 
-  if (command === 'release') {
-    const wantPush = parsed.flags.push === true
-    const wantTag = parsed.flags.tag === true || wantPush
-    const wantCommit = parsed.flags.commit === true || wantTag
-    const execute = parsed.flags.execute === true || wantCommit
+  // release
+  const wantPush = flags.push === true
+  const wantTag = flags.tag === true || wantPush
+  const wantCommit = flags.commit === true || wantTag
+  const execute = flags.execute === true || wantCommit
 
-    if (!execute) {
-      const result = await runPreview({ cwd, config })
-      printWarnings(result.warnings)
-      if (json) {
-        stdout.write(JSON.stringify(result, null, 2) + '\n')
-      } else {
-        stdout.write(c.dim(`${sym.arrow} dry run — pass `) + c.yellow('--execute') + c.dim(' to write files\n\n'))
-        printHumanPreview(result)
-      }
-      return
-    }
-
-    if (wantCommit && !(await isCleanWorkingTree({ cwd }))) {
-      fail('working tree must be clean before --commit/--tag/--push')
-    }
-
-    const result = await runRelease({ cwd, config })
+  if (!execute) {
+    const result = await runPreview({ cwd, config, ...versioning })
     printWarnings(result.warnings)
-    if (!result.released || !result.entry) {
-      if (json) stdout.write(JSON.stringify(result, null, 2) + '\n')
-      else stdout.write(`${c.dim(sym.arrow)} ${c.dim('nothing to release')}\n`)
-      return
-    }
-
-    if (wantCommit) {
-      const tpl =
-        typeof parsed.flags.message === 'string'
-          ? parsed.flags.message
-          : 'chore(release): v{version} [skip ci]'
-      const message = tpl.replace(/\{version\}/g, result.version)
-      await stageAndCommit(message, result.filesWritten, { cwd })
-    }
-    if (wantTag) {
-      const tagName = `${config.tagPrefix}${result.version}`
-      await createTag(tagName, `Release ${tagName}`, { cwd })
-    }
-    if (wantPush) {
-      const remote =
-        typeof parsed.flags.remote === 'string' ? parsed.flags.remote : 'origin'
-      const branch =
-        typeof parsed.flags.branch === 'string'
-          ? parsed.flags.branch
-          : await getCurrentBranch({ cwd })
-      await gitPush(remote, branch, { cwd, followTags: true })
-    }
-
     if (json) {
       stdout.write(JSON.stringify(result, null, 2) + '\n')
     } else {
-      printReleaseSuccess(result, { committed: wantCommit, tagged: wantTag, pushed: wantPush, tagPrefix: config.tagPrefix })
+      stdout.write(
+        c.dim(`${sym.arrow} dry run — pass `) +
+          c.yellow('--execute') +
+          c.dim(' to write files\n\n'),
+      )
+      printHumanPreview(result)
     }
     return
   }
 
-  fail(`unknown command: ${command}`)
+  const result = await runRelease({
+    cwd,
+    config,
+    ...versioning,
+    git: {
+      commit: wantCommit,
+      tag: wantTag,
+      push: wantPush,
+      ...(flags.remote !== undefined ? { remote: flags.remote } : {}),
+      ...(flags.branch !== undefined ? { branch: flags.branch } : {}),
+    },
+  })
+  printWarnings(result.warnings)
+  if (!result.released || !result.entry) {
+    if (json) stdout.write(JSON.stringify(result, null, 2) + '\n')
+    else stdout.write(`${c.dim(sym.arrow)} ${c.dim('nothing to release')}\n`)
+    return
+  }
+
+  if (json) {
+    stdout.write(JSON.stringify(result, null, 2) + '\n')
+  } else {
+    printReleaseSuccess(result)
+  }
 }
 
 /**
@@ -222,7 +288,9 @@ function printWarnings(warnings: string[]): void {
 
 function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void {
   if (!result.released || !result.entry) {
-    stdout.write(`${c.dim(sym.arrow)} ${c.dim('no release')} ${c.gray('— current version')} ${c.bold(result.previousVersion)}\n`)
+    stdout.write(
+      `${c.dim(sym.arrow)} ${c.dim('no release')} ${c.gray('— current version')} ${c.bold(result.previousVersion)}\n`,
+    )
     if (result.commits.length > 0) {
       stdout.write(c.dim(`  ${result.commits.length} commits scanned, none triggered a bump\n`))
     }
@@ -234,8 +302,11 @@ function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void
       `${c.dim(result.previousVersion)} ${arrow} ${c.bold(c.cyan(result.version))} ` +
       `${c.gray('(')}${colorLevel(result.bumpLevel)}${c.gray(')')}\n\n`,
   )
-  for (const [key, items] of Object.entries(result.entry.groups)) {
-    if (!items || items.length === 0) continue
+  const hasBreakingGroup = Boolean(result.entry.groups.breaking?.length)
+  for (const [key, all] of Object.entries(result.entry.groups)) {
+    // Breaking changes are shown once, under Breaking.
+    const items = (all ?? []).filter((i) => key === 'breaking' || !i.breaking || !hasBreakingGroup)
+    if (items.length === 0) continue
     stdout.write(`  ${colorGroup(key)} ${c.dim(`(${items.length})`)}\n`)
     for (const item of items) {
       const scope = item.scope ? c.magenta(item.scope) + c.dim(': ') : ''
@@ -247,10 +318,7 @@ function printHumanPreview(result: Awaited<ReturnType<typeof runPreview>>): void
   }
 }
 
-function printReleaseSuccess(
-  result: Awaited<ReturnType<typeof runRelease>>,
-  opts: { committed: boolean; tagged: boolean; pushed: boolean; tagPrefix: string },
-): void {
+function printReleaseSuccess(result: Awaited<ReturnType<typeof runRelease>>): void {
   const arrow = c.dim('→')
   stdout.write(
     `${c.green(sym.check)} ${c.bold('released')} ` +
@@ -260,9 +328,10 @@ function printReleaseSuccess(
   for (const f of result.filesWritten) {
     stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('wrote')} ${f}\n`)
   }
-  if (opts.committed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('commit')}\n`)
-  if (opts.tagged) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('tag')} ${c.cyan(opts.tagPrefix + result.version)}\n`)
-  if (opts.pushed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('pushed')}\n`)
+  if (result.git.committed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('commit')}\n`)
+  if (result.git.tag)
+    stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('tag')} ${c.cyan(result.git.tag)}\n`)
+  if (result.git.pushed) stdout.write(`  ${c.dim(sym.bullet)} ${c.dim('pushed')}\n`)
 }
 
 async function cmdInit(cwd: string): Promise<void> {
@@ -271,6 +340,7 @@ async function cmdInit(cwd: string): Promise<void> {
     fail('changelog.config.json already exists')
   }
   const cfg = {
+    $schema: 'https://unpkg.com/@xtr-dev/changelog/schema/config.schema.json',
     bumpMode: 'semver',
     output: {
       versionsJson: {
@@ -287,7 +357,5 @@ async function cmdInit(cwd: string): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  const msg = err instanceof Error ? err.message : String(err)
-  stderr.write(`xtr-changelog: ${msg}\n`)
-  exit(1)
+  fail(err instanceof Error ? err.message : String(err))
 })

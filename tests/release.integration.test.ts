@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -197,9 +197,9 @@ describe('release (integration)', () => {
     expect(seen).toEqual(['0.1.0', '0.2.0', '0.3.0'])
     expect(new Set(seen).size).toBe(3)
 
-    const store = JSON.parse(
-      readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
-    ) as { versions: { version: string }[] }
+    const store = JSON.parse(readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8')) as {
+      versions: { version: string }[]
+    }
     expect(store.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0', '0.1.0'])
   })
 
@@ -300,10 +300,159 @@ describe('release (integration)', () => {
     const versions = JSON.parse(
       readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
     ) as { versions: Array<{ version: string }> }
-    const archive = JSON.parse(
-      readFileSync(join(repo.cwd, 'changelog/archive.json'), 'utf8'),
-    ) as { versions: Array<{ version: string }> }
+    const archive = JSON.parse(readFileSync(join(repo.cwd, 'changelog/archive.json'), 'utf8')) as {
+      versions: Array<{ version: string }>
+    }
     expect(versions.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0'])
     expect(archive.versions.map((v) => v.version)).toEqual(['0.1.0'])
+  })
+
+  it('only scans commits since the last versions.json entry when untagged', async () => {
+    const config: ChangelogConfig = defaultConfig()
+    repo.commit('feat: first')
+    const first = await release({ cwd: repo.cwd, config })
+    repo.commit('chore(release): v0.1.0 [skip ci]', undefined, {
+      path: 'changelog/versions.json',
+      content: readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
+    })
+    repo.commit('fix: second')
+
+    const second = await preview({ cwd: repo.cwd, config })
+    expect(first.version).toBe('0.1.0')
+    expect(second.version).toBe('0.1.1')
+    expect(second.commits.map((c) => c.description)).toEqual(['second'])
+  })
+
+  it('never counts a release commit toward the next release', async () => {
+    repo.commit('feat: a')
+    repo.tag('v0.1.0')
+    // A release commit that landed after the tag (e.g. tagged before committing).
+    repo.commit('chore(release): v0.1.0 [skip ci]')
+    const r = await preview({ cwd: repo.cwd, config: defaultConfig() })
+    expect(r.released).toBe(false)
+  })
+
+  it('falls back to a full scan when the recorded commit is gone', async () => {
+    const config = defaultConfig()
+    repo.commit('feat: a')
+    await release({ cwd: repo.cwd, config })
+    const path = join(repo.cwd, 'changelog/versions.json')
+    const data = JSON.parse(readFileSync(path, 'utf8')) as { versions: { commit: string }[] }
+    data.versions[0]!.commit = 'deadbee'
+    writeFileSync(path, JSON.stringify(data))
+    repo.commit('fix: b')
+    const r = await preview({ cwd: repo.cwd, config })
+    expect(r.warnings.join('\n')).toMatch(/not in the history of HEAD/)
+  })
+
+  it('keeps existing CHANGELOG.md history when versionsJson is off', async () => {
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      output: {
+        versionsJson: false,
+        markdown: { path: 'CHANGELOG.md', preamble: '' },
+        packageJson: false,
+      },
+    }
+    writeFileSync(
+      join(repo.cwd, 'CHANGELOG.md'),
+      '# Changelog\n\nHand-written intro.\n\n## [0.1.0] - 2026-01-01\n\n### Features\n- old entry (aaaaaaa)\n',
+    )
+    repo.commit('feat: a')
+    repo.tag('v0.1.0')
+    repo.commit('fix: b')
+    await release({ cwd: repo.cwd, config })
+    const md = readFileSync(join(repo.cwd, 'CHANGELOG.md'), 'utf8')
+    expect(md.match(/^## \[[^\]]+\]/gm)).toEqual(['## [0.1.1]', '## [0.1.0]'])
+    expect(md).toContain('Hand-written intro.')
+    expect(md).toContain('old entry (aaaaaaa)')
+    expect(md.indexOf('Hand-written intro.')).toBeLessThan(md.indexOf('## [0.1.1]'))
+  })
+
+  it('bumps package-lock.json alongside package.json, keeping indentation', async () => {
+    writeFileSync(
+      join(repo.cwd, 'package.json'),
+      JSON.stringify({ name: 'app', version: '0.0.0' }, null, 4) + '\n',
+    )
+    writeFileSync(
+      join(repo.cwd, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'app',
+          version: '0.0.0',
+          lockfileVersion: 3,
+          packages: { '': { name: 'app', version: '0.0.0' } },
+        },
+        null,
+        2,
+      ) + '\n',
+    )
+    repo.commit('feat: x')
+    const cfg: ChangelogConfig = {
+      ...defaultConfig(),
+      output: { ...defaultConfig().output, packageJson: { path: 'package.json' } },
+    }
+    const r = await release({ cwd: repo.cwd, config: cfg })
+    const pkgRaw = readFileSync(join(repo.cwd, 'package.json'), 'utf8')
+    expect(pkgRaw).toContain('    "version": "0.1.0"')
+    const lock = JSON.parse(readFileSync(join(repo.cwd, 'package-lock.json'), 'utf8')) as {
+      version: string
+      packages: Record<string, { version: string }>
+    }
+    expect(lock.version).toBe('0.1.0')
+    expect(lock.packages['']!.version).toBe('0.1.0')
+    expect(r.filesWritten.some((f) => f.endsWith('package-lock.json'))).toBe(true)
+  })
+
+  it('runs a pre-release line and then graduates it', async () => {
+    const config = defaultConfig()
+    repo.commit('feat: a')
+    repo.tag('v1.0.0')
+    repo.commit('feat: b')
+    const beta0 = await preview({ cwd: repo.cwd, config, preid: 'beta' })
+    expect(beta0.version).toBe('1.1.0-beta.0')
+    repo.tag('v1.1.0-beta.0')
+    repo.commit('fix: c')
+    const beta1 = await preview({ cwd: repo.cwd, config, preid: 'beta' })
+    expect(beta1.previousVersion).toBe('1.1.0-beta.0')
+    expect(beta1.version).toBe('1.1.0-beta.1')
+    const stable = await preview({ cwd: repo.cwd, config })
+    expect(stable.version).toBe('1.1.0')
+  })
+
+  it('releaseAs cuts a release with no release-worthy commits', async () => {
+    repo.commit('feat: a')
+    repo.tag('v0.9.0')
+    const r = await release({ cwd: repo.cwd, config: defaultConfig(), releaseAs: '1.0.0' })
+    expect(r.released).toBe(true)
+    expect(r.version).toBe('1.0.0')
+  })
+
+  it('releases one monorepo package from its own commits and tags', async () => {
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      tagPrefix: 'pkg-a@v',
+      paths: ['packages/a'],
+    }
+    mkdirSync(join(repo.cwd, 'packages/a'), { recursive: true })
+    mkdirSync(join(repo.cwd, 'packages/b'), { recursive: true })
+    repo.commit('feat(a): add a', undefined, { path: 'packages/a/index.js', content: '1' })
+    repo.tag('pkg-a@v0.1.0')
+    repo.tag('pkg-b@v5.0.0')
+    repo.commit('feat(b): add b', undefined, { path: 'packages/b/index.js', content: '1' })
+    repo.commit('fix(a): fix a', undefined, { path: 'packages/a/index.js', content: '2' })
+
+    const r = await preview({ cwd: repo.cwd, config })
+    expect(r.previousVersion).toBe('0.1.0')
+    expect(r.version).toBe('0.1.1')
+    expect(r.commits.map((c) => c.description)).toEqual(['fix a'])
+
+    // The same, run from inside the package with paths relative to it.
+    const fromPackage = await preview({
+      cwd: join(repo.cwd, 'packages/a'),
+      config: { ...config, paths: ['.'] },
+    })
+    expect(fromPackage.version).toBe('0.1.1')
+    expect(fromPackage.commits.map((c) => c.description)).toEqual(['fix a'])
   })
 })

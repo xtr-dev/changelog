@@ -60,8 +60,8 @@ Nothing has been written yet — `preview` is read-only.
 ### 5. Cut the release
 
 ```bash
-# Write files, commit, tag, push
-npx xtr-changelog release --execute --commit --tag --push
+# Write files, commit, tag, push (--push implies --tag, which implies --commit)
+npx xtr-changelog release --push
 
 # Or just write the files (no git ops)
 npx xtr-changelog release --execute
@@ -92,12 +92,14 @@ jobs:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with: { fetch-depth: 0 }
-      - uses: xtr-dev/changelog@v1
+      - uses: xtr-dev/changelog@v0
+        with:
+          github-release: true   # optional: also publish a GitHub Release
 ```
 
-Now every push to `main` becomes a release commit + tag. The `[skip ci]` marker on the release commit prevents the workflow from looping.
+Now every push to `main` becomes a release commit + tag. The `[skip ci]` marker on the release commit prevents the workflow from looping. `@v0` is a moving tag on the latest 0.x release; pin an exact release tag (e.g. `@v0.0.12`) if you prefer.
 
 ### 7. Use the structured changelog at build time
 
@@ -110,7 +112,9 @@ npx xtr-changelog unreleased --json > whats-new.json
 ## Defaults at a glance
 
 - `changelog/versions.json` is always on, with the 10 most recent entries kept in place and older ones rotated into `changelog/archive.json`.
-- Markdown and `package.json` updates are opt-in by default, and turned on by `init`.
+- Markdown and `package.json` updates are opt-in by default, and turned on by `init`. Bumping `package.json` also bumps the root version in a sibling `package-lock.json`.
+- `CHANGELOG.md` links commits, issues and version comparisons when the repository URL is known (from `package.json#repository` or the `origin` remote).
+- Unknown config keys and unknown CLI flags are errors, not silently ignored.
 - Dry-run is the default — you have to pass `--execute` to write anything. `--commit`, `--tag`, and `--push` each imply `--execute`.
 - Color is on when stdout is a TTY. Set `NO_COLOR=1` or pass `--no-color` to disable.
 
@@ -123,27 +127,43 @@ Commands
   preview                     Show what the next release would contain (no writes)
   release                     Apply the release
   unreleased                  Print the would-be next entry as JSON
+  notes [version]             Print a release's notes as markdown (default: newest)
   init                        Scaffold config
 
 Common options
   --cwd <path>                Working directory
   --json                      Emit JSON
   --no-color                  Disable colored output
+  -v, --version               Print the xtr-changelog version
+
+Versioning options (preview, unreleased, release)
+  --preid <id>                Cut a pre-release, e.g. beta → 1.3.0-beta.0
+  --release-as <version>      Release exactly this version (e.g. 1.0.0)
 
 Release options
   --execute                   Actually write files
-  --commit / --tag / --push   Standard release dance (each implies --execute)
+  --commit                    Create a release commit (implies --execute)
+  --tag                       Create an annotated tag (implies --commit)
+  --push                      Push commit + tag (implies --tag)
   --remote <name>             Default: origin
   --branch <name>             Default: current branch
   --message <tpl>             Commit message template; {version} is substituted
                               Default: 'chore(release): v{version} [skip ci]'
 ```
 
-`unreleased --json` is the build-time hook: it prints the next version + grouped changes without writing anything, so your bundler can embed a "what's new" payload.
+`unreleased --json` is the build-time hook: it prints the next version + grouped changes without writing anything, so your bundler can embed a "what's new" payload. `notes` prints an already-released version's section without its heading, ready for a GitHub Release body.
+
+Flags are strict: a misspelled flag (`--exceute`) or one that doesn't apply to the command (`preview --push`) exits with an error.
 
 ## Config
 
-Loaded from (in order): `changelog.config.json`, `changelog.config.js`/`.mjs`/`.cjs`, or a `"changelog"` key in `package.json`. TS configs (`changelog.config.ts`) are detected but not transpiled — there's no built-in TS loader, so either compile to `.js`/`.mjs` or use JSON.
+Loaded from (in order): `changelog.config.ts` (detected but refused — there's no built-in TS loader, so compile to `.js`/`.mjs` or use JSON), `changelog.config.js`/`.mjs`/`.cjs`, `changelog.config.json`, or a `"changelog"` key in `package.json`.
+
+The config is validated when loaded: unknown keys (`bumpmode`) and wrong types (`bumpMap: { feat: 'huge' }`) fail with every problem listed. JSON configs can point at the published schema for editor completion — `init` adds this for you:
+
+```json
+{ "$schema": "https://unpkg.com/@xtr-dev/changelog/schema/config.schema.json" }
+```
 
 ```ts
 import type { ChangelogConfig } from '@xtr-dev/changelog'
@@ -153,6 +173,22 @@ export default {
   bumpMode: 'semver',
   initialVersion: '0.0.0',
   tagPrefix: 'v',
+
+  // Release commits matching this template never count toward a release.
+  releaseCommitMessage: 'chore(release): v{version} [skip ci]',
+
+  // Pre-releases: 'beta' → 1.3.0-beta.0, 1.3.0-beta.1, …; unset for stable.
+  // prerelease: 'beta',
+
+  // Before 1.0.0, treat breaking changes as minor bumps. Default false.
+  bumpMinorPreMajor: false,
+
+  // Base URL for links in CHANGELOG.md. Detected from package.json#repository
+  // or the origin remote when unset; false turns links off.
+  // repositoryUrl: 'https://github.com/you/repo',
+
+  // Only count commits touching these paths (monorepo packages). Default: all.
+  // paths: ['packages/a'],
 
   // Type → bump map (semver mode). Breaking always wins (→ major).
   // Defaults shown — anything not listed is ignored for bump purposes.
@@ -196,9 +232,11 @@ export default {
 In precedence order:
 
 1. `currentVersionOverride`, if you pass it to the library.
-2. The highest `tagPrefix`-matching tag in the repo (default prefix `v`).
-3. Otherwise, the highest version any enabled output already records — `package.json#version` and the newest `versions.json` entry, whichever is greater.
+2. The highest `tagPrefix`-matching tag *reachable from HEAD* (default prefix `v`). Tags on other branches are ignored, so a hotfix on `main` isn't based on a `v2.0.0` that only exists on `next`.
+3. Otherwise, the highest of `package.json#version` (read even when `output.packageJson` is off) and the newest `versions.json` entry.
 4. Otherwise `initialVersion` (default `0.0.0`).
+
+The commits considered are the ones since that tag. Without a tag, they're the ones since the commit the newest `versions.json` entry records, so an untagged repo doesn't re-release its whole history every time (if that commit has been rewritten away, the CLI warns and scans everything). Release commits — anything matching `releaseCommitMessage` — never count.
 
 Step 3 is what keeps untagged repos monotonic: `versions.json` is written on every release, so it works as the anchor even when tags are absent (a shallow CI clone) and `output.packageJson` is off. Disable *both* of those outputs and there is nowhere left to record the version — every run then re-stamps the same one, and the CLI warns you.
 
@@ -219,6 +257,60 @@ Step 3 is what keeps untagged repos monotonic: `versions.json` is written on eve
   } satisfies ChangelogConfig
   ```
 
+A commit and its revert in the same release cancel out. A revert of something that already shipped (including git's default `Revert "feat: …"` subject) counts as a `revert` (patch by default).
+
+### Pre-releases
+
+```bash
+npx xtr-changelog release --push --preid beta   # 1.2.3 + feat → 1.3.0-beta.0
+npx xtr-changelog release --push --preid beta   # more changes  → 1.3.0-beta.1
+npx xtr-changelog release --push                # graduate      → 1.3.0
+```
+
+A pre-release line absorbs bumps up to the level it already represents: a breaking change on `1.3.0-beta.1` starts `2.0.0-beta.0`, a fix just advances the counter. Set `prerelease: 'beta'` in config for a branch that always cuts pre-releases.
+
+### Leaving 0.x
+
+By default a breaking change on 0.x jumps to 1.0.0. Set `bumpMinorPreMajor: true` to keep breaking changes on the minor while the major is 0, then go stable explicitly:
+
+```bash
+npx xtr-changelog release --push --release-as 1.0.0
+```
+
+`--release-as` releases exactly that version, even when no commit would trigger a bump. It must be greater than the current version.
+
+### Monorepos
+
+Release one package at a time with `paths` and a per-package `tagPrefix`. Run it from the package directory:
+
+```json
+{ "tagPrefix": "pkg-a@v", "paths": ["."], "releaseCommitMessage": "chore(release): pkg-a@v{version} [skip ci]" }
+```
+
+```bash
+npx xtr-changelog release --cwd packages/a --push
+```
+
+Only commits touching `packages/a` count, tags look like `pkg-a@v1.2.0`, and the outputs are resolved relative to the package. For coordinated multi-package releases, changesets is still a better fit.
+
+## `CHANGELOG.md`
+
+```markdown
+## [0.4.2](https://github.com/o/r/compare/v0.4.1...v0.4.2) - 2026-05-09
+
+### Breaking
+- **api:** remove legacy fields ([deadbee](https://github.com/o/r/commit/deadbee…))
+  The v1 endpoints are gone; use /v2.
+
+### Features
+- **cli:** support --json output ([#12](https://github.com/o/r/issues/12)) ([abc1234](https://github.com/o/r/commit/abc1234…)), closes [#9](https://github.com/o/r/issues/9)
+```
+
+- Breaking changes are listed once, under **Breaking**, with their `BREAKING CHANGE:` note.
+- `#123` in a description and `Closes`/`Fixes`/`Refs` footers become issue links. Links need a repository URL; without one the same text is rendered unlinked.
+- With `versionsJson` on, the file is re-rendered from `versions.json` + `archive.json` on each release, so edit entries there. With `versionsJson` off, the new section is inserted above the newest one and the rest of the file is left untouched.
+- `config.formatter(entry)` replaces the per-version rendering entirely.
+
 ## `versions.json` schema
 
 ```jsonc
@@ -231,7 +323,7 @@ Step 3 is what keeps untagged repos monotonic: `versions.json` is written on eve
       "commit": "abc1234",
       "breaking": false,
       "groups": {
-        "features": [{ "type": "feat", "scope": "cli", "description": "...", "commit": "abc1234", "author": "Jane", "breaking": false, "notes": [] }],
+        "features": [{ "type": "feat", "scope": "cli", "description": "...", "commit": "abc1234", "hash": "abc1234…(40 chars)", "author": "Jane", "breaking": false, "notes": [] }],
         "fixes": [],
         "other": []
       }
@@ -240,32 +332,45 @@ Step 3 is what keeps untagged repos monotonic: `versions.json` is written on eve
 }
 ```
 
-`archive.json` has the same shape.
+`archive.json` has the same shape. Both validate against [`schema/versions.schema.json`](schema/versions.schema.json), published at `https://unpkg.com/@xtr-dev/changelog/schema/versions.schema.json`.
 
 ## GitHub Action
 
 ```yaml
-- uses: xtr-dev/changelog@v1
-  with:
-    push: true
+permissions:
+  contents: write
+
+steps:
+  - uses: actions/checkout@v6
+    with: { fetch-depth: 0 }
+  - uses: xtr-dev/changelog@v0
+    id: release
+    with:
+      github-release: true
+  - if: steps.release.outputs.released == 'true'
+    run: echo "released ${{ steps.release.outputs.version }}"
 ```
 
 All inputs (with defaults):
 
 | input | default | notes |
 | --- | --- | --- |
-| `node-version` | `20` | |
+| `node-version` | `22` | |
 | `cwd` | `.` | |
-| `package-version` | `latest` | npm version of the CLI to install. `local` to use the workspace install. |
+| `package-version` | (the action's own version) | npm version of the CLI to install. `local` uses the workspace install (`npx --no-install`). |
 | `commit` / `tag` / `push` | `true` | |
 | `remote` | `origin` | |
 | `branch` | (current) | |
 | `message` | `chore(release): v{version} [skip ci]` | |
+| `preid` | | Cut a pre-release, e.g. `beta`. |
+| `release-as` | | Release exactly this version. |
+| `github-release` | `false` | Create a GitHub Release with the entry as notes. Needs `tag` and `push`. Marked as a pre-release for `-beta.N` style versions. |
+| `github-token` | `github.token` | Used for the GitHub Release. |
 | `git-user-name` / `git-user-email` | `github-actions[bot]` | |
 
-Outputs: `released`, `version`, `previous-version`, `changes-json`.
+Outputs: `released`, `version`, `previous-version`, `tag`, `changes-json`, `release-url`.
 
-The action sets `[skip ci]` in the release commit by default — your `on: push` workflow won't loop.
+The action sets `[skip ci]` in the release commit by default — your `on: push` workflow won't loop. Inputs are passed to the scripts as environment variables, so values with quotes or `$(...)` are safe.
 
 ## Library
 
@@ -275,16 +380,20 @@ import { preview, release, loadConfig } from '@xtr-dev/changelog'
 const config = await loadConfig(process.cwd())
 const result = await preview({ cwd: process.cwd(), config })
 if (result.released) console.log('next version:', result.version)
+
+// Write files, then commit, tag and push (each step implies the ones before it).
+await release({ cwd: process.cwd(), config, git: { push: true } })
 ```
 
-The high-level entry points are `preview` (read-only) and `release` (does the I/O). Underneath, the pure building blocks are exported too — useful when you're building a custom flow:
+The high-level entry points are `preview` (read-only), `release` (writes files, and runs the git steps in `git`), and `releaseNotes` (markdown for a recorded version). `preview` and `release` also take `preid` and `releaseAs`. Underneath, the pure building blocks are exported too — useful when you're building a custom flow:
 
 | Export | Purpose |
 | --- | --- |
-| `parseCommit`, `filterCommits` | Parse a git log line into a `ParsedCommit`, then drop ones excluded by `includeTypes`/`excludeTypes`. |
+| `parseCommit`, `filterCommits`, `cancelReverts` | Parse a git log line into a `ParsedCommit`, cancel reverted pairs, then drop ones excluded by `includeTypes`/`excludeTypes`. |
 | `computeNextVersion`, `deriveSemverBump` | Decide the next version from parsed commits + current version. |
 | `buildVersionEntry` | Turn parsed commits into the structured entry that ends up in `versions.json`. |
-| `formatVersionMarkdown`, `buildChangelogMarkdown` | Render one entry, or a full `CHANGELOG.md`, from structured entries. |
+| `formatVersionMarkdown`, `buildChangelogMarkdown`, `insertChangelogSection` | Render one entry, a full `CHANGELOG.md`, or insert one entry into an existing file. |
+| `normalizeRepositoryUrl` | Turn `git@github.com:o/r.git`, `github:o/r`, etc. into a browsable `https://` base URL. |
 | `loadConfig`, `mergeConfig`, `defaultConfig` | Resolve user config against defaults. `DEFAULT_BUMP_MAP` and `DEFAULT_GROUPS` are exported as constants. |
 | `parseSemver`, `inc`, `compareSemver`, … | The semver helpers used internally — exported because they're handy and dependency-free. |
 
@@ -296,16 +405,26 @@ The high-level entry points are `preview` (read-only) and `release` (does the I/
 
 **From `conventional-changelog` / `conventional-changelog-cli`** — same input format, so commits don't need to change. The big difference is that this tool bumps the version *and* writes the changelog in one step, and ships the structured `versions.json` alongside the markdown.
 
-**From `changesets`** — different model entirely. Changesets is intent-based (you write a changeset file describing the bump); this tool is commit-driven (it infers from conventional-commit prefixes). If you're a single-package repo and your team already writes conventional commits, you can drop the per-PR changeset overhead. For monorepos with independent package versioning, stick with changesets.
+**From `changesets`** — different model entirely. Changesets is intent-based (you write a changeset file describing the bump); this tool is commit-driven (it infers from conventional-commit prefixes). If you're a single-package repo and your team already writes conventional commits, you can drop the per-PR changeset overhead. For monorepos, `paths` + a per-package `tagPrefix` covers releasing packages independently (see [Monorepos](#monorepos)); for coordinated multi-package releases, stick with changesets.
 
 ## Troubleshooting
 
-- **"No commits found" / wrong base.** The tool walks back to the most recent tag matching `tagPrefix` (default `v`). In CI, make sure tags are present — `actions/checkout@v4` needs `with: { fetch-depth: 0 }` (a shallow clone has no tags).
+- **"No commits found" / wrong base.** The tool walks back to the highest tag matching `tagPrefix` (default `v`) that is reachable from HEAD. In CI, make sure tags are present — `actions/checkout` needs `with: { fetch-depth: 0 }` (a shallow clone has no tags).
 - **The same version keeps getting released.** The previous version comes from the most recent `tagPrefix` tag. With no such tag — a shallow CI clone, or a repo that doesn't tag — it falls back to the highest version recorded by an enabled output: `package.json#version` or the newest entry in `versions.json`. If neither of those outputs is enabled, nothing persists the version and every run re-stamps the same one; the CLI prints a warning to stderr when it detects this. Fix it by enabling `output.versionsJson` or `output.packageJson`, tagging releases (`--tag`), or passing `currentVersionOverride`.
 - **The release commit triggers another release run.** The default commit message includes `[skip ci]`, but only the `if:` guard in your workflow actually stops it. Keep the `if: "!contains(github.event.head_commit.message, '[skip ci]')"` line, or set `message` to something else and update the guard to match.
 - **Signed commits in CI.** The action commits as `github-actions[bot]` and does not sign. If your branch protection requires signed commits, run the release on a branch that allows unsigned commits, or set `commit: false` and sign/push from a separate step.
 - **`bumpMode: 'custom'` errors.** `customBump` must return a valid semver string. Return the *same* version as `current` to skip the release (no entry written, no commit, no tag).
+- **`unknown option` / `does not apply to`.** Flags are checked strictly; run `xtr-changelog help` for the flags each command takes.
 - **Nothing happens on `release` without `--execute`.** That's by design — the default is dry-run. Pass `--execute`, or any of `--commit` / `--tag` / `--push` (each implies `--execute`).
+
+## Development
+
+```bash
+npm ci
+npm run check          # lint (Biome) + typecheck (src and tests) + tests
+npm run test:coverage
+npm run build
+```
 
 ## License
 

@@ -94,6 +94,20 @@ export interface ChangelogConfig {
   /** Starting version when no prior tags exist. Default '0.0.0'. */
   initialVersion: string
 
+  /**
+   * Cut pre-releases with this identifier (e.g. 'beta' → 1.3.0-beta.0). Unset
+   * (the default) for stable releases; running without it from a pre-release
+   * graduates the line (1.3.0-beta.2 → 1.3.0).
+   */
+  prerelease?: string
+
+  /**
+   * While the major version is 0, treat breaking changes as minor bumps
+   * instead of jumping to 1.0.0. Use `--release-as 1.0.0` to leave 0.x.
+   * Default false.
+   */
+  bumpMinorPreMajor?: boolean
+
   /** Map commit type → bump level (semver mode). Breaking always wins. */
   bumpMap: Record<string, BumpLevel>
 
@@ -143,6 +157,10 @@ export interface ReleaseInput {
   now?: Date
   /** Override the current version (otherwise read from package.json or last tag). */
   currentVersionOverride?: string
+  /** Cut a pre-release with this identifier; overrides config.prerelease. */
+  preid?: string
+  /** Release exactly this version, even with no release-worthy commits. */
+  releaseAs?: string
 }
 
 export interface ReleaseResult {

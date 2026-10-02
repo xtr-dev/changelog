@@ -77,26 +77,74 @@ export function compareSemver(a: string, b: string): number {
   return 0
 }
 
-/** Increment by N patch levels (used by commit-count mode). */
-export function incPatchBy(version: string, n: number): string {
-  const s = parseSemver(version)
-  return formatSemver({
-    major: s.major,
-    minor: s.minor,
-    patch: s.patch + n,
-    prerelease: [],
-    build: [],
-  })
+const LEVEL_RANK: Record<BumpLevel, number> = { none: 0, patch: 1, minor: 2, major: 3 }
+
+/** Numeric rank of a bump level, for comparisons. */
+export function levelRank(level: BumpLevel): number {
+  return LEVEL_RANK[level]
 }
 
-export function inc(version: string, level: BumpLevel): string {
+/**
+ * The level a release line already represents: X.0.0 is a major, X.Y.0 a
+ * minor, anything else a patch. A pre-release of 2.0.0 already "contains" a
+ * major bump, so further breaking changes only advance its counter.
+ */
+function impliedLevel(s: Semver): BumpLevel {
+  if (s.minor === 0 && s.patch === 0) return 'major'
+  if (s.patch === 0) return 'minor'
+  return 'patch'
+}
+
+function bumpCore(s: Semver, level: BumpLevel): Semver {
+  const core = { prerelease: [] as string[], build: [] as string[] }
+  if (level === 'major') return { major: s.major + 1, minor: 0, patch: 0, ...core }
+  if (level === 'minor') return { major: s.major, minor: s.minor + 1, patch: 0, ...core }
+  if (level === 'patch') return { major: s.major, minor: s.minor, patch: s.patch + 1, ...core }
+  return { major: s.major, minor: s.minor, patch: s.patch, ...core }
+}
+
+function withPrerelease(target: Semver, current: Semver, preid: string): string {
+  const sameLine =
+    target.major === current.major &&
+    target.minor === current.minor &&
+    target.patch === current.patch
+  const [id, n] = current.prerelease
+  const counter =
+    sameLine && id === preid && n !== undefined && /^\d+$/.test(n) ? Number(n) + 1 : 0
+  return formatSemver({ ...target, prerelease: [preid, String(counter)], build: [] })
+}
+
+/** Increment by N patch levels (used by commit-count mode). */
+export function incPatchBy(version: string, n: number, preid?: string): string {
+  const s = parseSemver(version)
+  if (s.prerelease.length > 0) {
+    // N commits on top of a pre-release: advance the pre-release counter, or
+    // graduate the line as-is.
+    const line = { ...s, prerelease: [], build: [] }
+    return preid ? withPrerelease(line, s, preid) : formatSemver(line)
+  }
+  const target = { ...s, patch: s.patch + n, prerelease: [], build: [] }
+  return preid ? withPrerelease(target, s, preid) : formatSemver(target)
+}
+
+/**
+ * Increment a version by a bump level.
+ *
+ * - From a stable version, bumps normally (and starts `-preid.0` if given).
+ * - From a pre-release, the release line (1.3.0 for 1.3.0-beta.2) already
+ *   covers bumps up to the level it implies: with a preid the counter goes up
+ *   (1.3.0-beta.3), without one the line graduates (1.3.0). A bigger bump
+ *   starts a new line (2.0.0-beta.0 / 2.0.0).
+ */
+export function inc(version: string, level: BumpLevel, preid?: string): string {
   if (level === 'none') return version
   const s = parseSemver(version)
-  if (level === 'major') {
-    return formatSemver({ major: s.major + 1, minor: 0, patch: 0, prerelease: [], build: [] })
+  let target: Semver
+  if (s.prerelease.length > 0) {
+    const line: Semver = { ...s, prerelease: [], build: [] }
+    target = levelRank(impliedLevel(line)) >= levelRank(level) ? line : bumpCore(line, level)
+  } else {
+    target = bumpCore(s, level)
   }
-  if (level === 'minor') {
-    return formatSemver({ major: s.major, minor: s.minor + 1, patch: 0, prerelease: [], build: [] })
-  }
-  return formatSemver({ major: s.major, minor: s.minor, patch: s.patch + 1, prerelease: [], build: [] })
+  return preid ? withPrerelease(target, s, preid) : formatSemver(target)
 }

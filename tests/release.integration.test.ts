@@ -398,4 +398,28 @@ describe('release (integration)', () => {
     expect(lock.packages['']!.version).toBe('0.1.0')
     expect(r.filesWritten.some((f) => f.endsWith('package-lock.json'))).toBe(true)
   })
+
+  it('runs a pre-release line and then graduates it', async () => {
+    const config = defaultConfig()
+    repo.commit('feat: a')
+    repo.tag('v1.0.0')
+    repo.commit('feat: b')
+    const beta0 = await preview({ cwd: repo.cwd, config, preid: 'beta' })
+    expect(beta0.version).toBe('1.1.0-beta.0')
+    repo.tag('v1.1.0-beta.0')
+    repo.commit('fix: c')
+    const beta1 = await preview({ cwd: repo.cwd, config, preid: 'beta' })
+    expect(beta1.previousVersion).toBe('1.1.0-beta.0')
+    expect(beta1.version).toBe('1.1.0-beta.1')
+    const stable = await preview({ cwd: repo.cwd, config })
+    expect(stable.version).toBe('1.1.0')
+  })
+
+  it('releaseAs cuts a release with no release-worthy commits', async () => {
+    repo.commit('feat: a')
+    repo.tag('v0.9.0')
+    const r = await release({ cwd: repo.cwd, config: defaultConfig(), releaseAs: '1.0.0' })
+    expect(r.released).toBe(true)
+    expect(r.version).toBe('1.0.0')
+  })
 })

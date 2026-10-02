@@ -160,6 +160,10 @@ export async function preview(input: ReleaseInput): Promise<PreviewResult> {
     state.previousVersion,
     state.filteredCommits,
     config,
+    {
+      ...(input.preid !== undefined ? { preid: input.preid } : {}),
+      ...(input.releaseAs !== undefined ? { releaseAs: input.releaseAs } : {}),
+    },
   )
 
   if (level === 'none' || next === state.previousVersion) {

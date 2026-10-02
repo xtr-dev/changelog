@@ -1,0 +1,124 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://unpkg.com/@xtr-dev/changelog/schema/config.schema.json",
+  "title": "@xtr-dev/changelog config",
+  "description": "changelog.config.json, or the \"changelog\" key in package.json. Function options (customBump, formatter) are only available in JS configs.",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "level": { "enum": ["major", "minor", "patch", "none"] },
+    "stringArray": { "type": "array", "items": { "type": "string" } }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "bumpMode": {
+      "description": "semver: type → level via bumpMap. commit-count: one patch per commit. custom: customBump (JS configs only).",
+      "enum": ["semver", "commit-count", "custom"],
+      "default": "semver"
+    },
+    "initialVersion": {
+      "description": "Version to start from when nothing records one yet.",
+      "type": "string",
+      "default": "0.0.0"
+    },
+    "prerelease": {
+      "description": "Cut pre-releases with this identifier (e.g. beta → 1.3.0-beta.0).",
+      "type": "string",
+      "pattern": "^[0-9A-Za-z-]+$"
+    },
+    "bumpMinorPreMajor": {
+      "description": "While the major version is 0, breaking changes bump the minor version.",
+      "type": "boolean",
+      "default": false
+    },
+    "bumpMap": {
+      "description": "Commit type → bump level (semver mode). Merged over the defaults. Breaking changes always bump major.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/level" }
+    },
+    "includeTypes": {
+      "description": "Only these commit types count (null = all).",
+      "oneOf": [{ "$ref": "#/definitions/stringArray" }, { "type": "null" }],
+      "default": null
+    },
+    "excludeTypes": {
+      "description": "Commit types that never count (applied after includeTypes).",
+      "$ref": "#/definitions/stringArray",
+      "default": []
+    },
+    "groups": {
+      "description": "Output groups, in markdown order. Replaces the defaults.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["title", "key", "types"],
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string" },
+          "key": { "type": "string" },
+          "types": { "$ref": "#/definitions/stringArray" }
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "versionsJson": {
+          "oneOf": [
+            { "const": false },
+            {
+              "type": "object",
+              "required": ["path", "archivePath", "archiveAfter"],
+              "additionalProperties": false,
+              "properties": {
+                "path": { "type": "string" },
+                "archivePath": { "type": "string" },
+                "archiveAfter": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
+        },
+        "markdown": {
+          "oneOf": [
+            { "const": false },
+            {
+              "type": "object",
+              "required": ["path"],
+              "additionalProperties": false,
+              "properties": {
+                "path": { "type": "string" },
+                "preamble": { "type": "string" }
+              }
+            }
+          ]
+        },
+        "packageJson": {
+          "oneOf": [
+            { "const": false },
+            {
+              "type": "object",
+              "required": ["path"],
+              "additionalProperties": false,
+              "properties": { "path": { "type": "string" } }
+            }
+          ]
+        }
+      }
+    },
+    "repositoryUrl": {
+      "description": "Base URL used for links in the markdown. Detected from package.json#repository or the origin remote when unset; false disables links.",
+      "oneOf": [{ "type": "string" }, { "const": false }]
+    },
+    "tagPrefix": { "type": "string", "default": "v" },
+    "releaseCommitMessage": {
+      "description": "Release commit message; {version} is substituted. Matching commits never count toward a release.",
+      "type": "string",
+      "default": "chore(release): v{version} [skip ci]"
+    },
+    "paths": {
+      "description": "Only count commits touching these paths (relative to the working directory). For monorepo packages.",
+      "$ref": "#/definitions/stringArray"
+    }
+  }
+}

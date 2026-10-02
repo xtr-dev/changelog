@@ -117,6 +117,18 @@ export interface ChangelogConfig {
   tagPrefix: string
 
   /**
+   * Message of the release commit; {version} is substituted. Commits matching
+   * it never count toward a release. Default 'chore(release): v{version} [skip ci]'.
+   */
+  releaseCommitMessage: string
+
+  /**
+   * Only consider commits that touch these paths (relative to cwd). Use with a
+   * per-package tagPrefix to release one package of a monorepo. Default: all.
+   */
+  paths?: string[]
+
+  /**
    * Override the markdown formatter for a single version entry.
    * Receives the entry; should return markdown for that section
    * (without the top-level # heading).

@@ -120,6 +120,9 @@ async function main(): Promise<void> {
   }
 
   const config = await loadConfig(cwd)
+  if (typeof parsed.flags.message === 'string') {
+    config.releaseCommitMessage = parsed.flags.message
+  }
 
   if (command === 'preview') {
     const result = await runPreview({ cwd, config })
@@ -178,11 +181,7 @@ async function main(): Promise<void> {
     }
 
     if (wantCommit) {
-      const tpl =
-        typeof parsed.flags.message === 'string'
-          ? parsed.flags.message
-          : 'chore(release): v{version} [skip ci]'
-      const message = tpl.replace(/\{version\}/g, result.version)
+      const message = config.releaseCommitMessage.replace(/\{version\}/g, result.version)
       await stageAndCommit(message, result.filesWritten, { cwd })
     }
     if (wantTag) {

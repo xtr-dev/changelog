@@ -22,6 +22,8 @@ export const DEFAULT_BUMP_MAP: Record<string, BumpLevel> = {
   security: 'patch',
 }
 
+export const DEFAULT_RELEASE_COMMIT_MESSAGE = 'chore(release): v{version} [skip ci]'
+
 export const DEFAULT_GROUPS: GroupDef[] = [
   { title: 'Features', key: 'features', types: ['feat'] },
   { title: 'Fixes', key: 'fixes', types: ['fix', 'perf'] },
@@ -62,6 +64,7 @@ export function defaultConfig(): ChangelogConfig {
       packageJson: false,
     },
     tagPrefix: 'v',
+    releaseCommitMessage: DEFAULT_RELEASE_COMMIT_MESSAGE,
   }
 }
 

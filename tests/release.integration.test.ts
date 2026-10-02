@@ -306,4 +306,42 @@ describe('release (integration)', () => {
     expect(versions.versions.map((v) => v.version)).toEqual(['0.3.0', '0.2.0'])
     expect(archive.versions.map((v) => v.version)).toEqual(['0.1.0'])
   })
+
+  it('only scans commits since the last versions.json entry when untagged', async () => {
+    const config: ChangelogConfig = defaultConfig()
+    repo.commit('feat: first')
+    const first = await release({ cwd: repo.cwd, config })
+    repo.commit('chore(release): v0.1.0 [skip ci]', undefined, {
+      path: 'changelog/versions.json',
+      content: readFileSync(join(repo.cwd, 'changelog/versions.json'), 'utf8'),
+    })
+    repo.commit('fix: second')
+
+    const second = await preview({ cwd: repo.cwd, config })
+    expect(first.version).toBe('0.1.0')
+    expect(second.version).toBe('0.1.1')
+    expect(second.commits.map((c) => c.description)).toEqual(['second'])
+  })
+
+  it('never counts a release commit toward the next release', async () => {
+    repo.commit('feat: a')
+    repo.tag('v0.1.0')
+    // A release commit that landed after the tag (e.g. tagged before committing).
+    repo.commit('chore(release): v0.1.0 [skip ci]')
+    const r = await preview({ cwd: repo.cwd, config: defaultConfig() })
+    expect(r.released).toBe(false)
+  })
+
+  it('falls back to a full scan when the recorded commit is gone', async () => {
+    const config = defaultConfig()
+    repo.commit('feat: a')
+    await release({ cwd: repo.cwd, config })
+    const path = join(repo.cwd, 'changelog/versions.json')
+    const data = JSON.parse(readFileSync(path, 'utf8')) as { versions: { commit: string }[] }
+    data.versions[0]!.commit = 'deadbee'
+    writeFileSync(path, JSON.stringify(data))
+    repo.commit('fix: b')
+    const r = await preview({ cwd: repo.cwd, config })
+    expect(r.warnings.join('\n')).toMatch(/not in the history of HEAD/)
+  })
 })

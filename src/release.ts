@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { computeNextVersion } from './bump.js'
 import { resolveOutputPath } from './config.js'
 import { buildChangelogMarkdown, buildVersionEntry } from './format.js'
-import { getCommitsSince, getLastTag } from './git.js'
+import { getCommitsSince, getLastTag, isAncestorOfHead } from './git.js'
 import { filterCommits, parseCommit } from './parse.js'
 import { compareSemver, isValidSemver } from './semver.js'
 import type {
@@ -37,6 +37,11 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
   const warnings: string[] = []
 
   let previousVersion: string
+  // Where the commit scan starts. A tag when there is one; otherwise the last
+  // commit versions.json says it shipped, so an untagged repo does not
+  // re-release its whole history on every run.
+  let rangeStart: string | null = lastTag
+  const head = lastTag ? null : await readVersionsJsonHead(cwd, config)
   if (input.currentVersionOverride) {
     previousVersion = input.currentVersionOverride
   } else if (lastTag) {
@@ -48,7 +53,7 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     // fixed precedence keeps this monotonic whichever outputs are enabled.
     const candidates = [
       await readPackageVersion(cwd, config),
-      await readVersionsJsonVersion(cwd, config),
+      head?.version ?? null,
     ].filter((v): v is string => v !== null)
 
     previousVersion = candidates.length > 0
@@ -68,31 +73,58 @@ async function resolveState(input: ReleaseInput): Promise<ResolvedState> {
     throw new Error(`Previous version is not valid semver: ${previousVersion}`)
   }
 
-  const raw = await getCommitsSince(lastTag, { cwd })
+  if (head?.commit) {
+    if (await isAncestorOfHead(head.commit, { cwd })) {
+      rangeStart = head.commit
+    } else {
+      warnings.push(
+        `versions.json records ${head.version} at commit ${head.commit}, which is not ` +
+          'in the history of HEAD (rewritten history?). Scanning all commits instead.',
+      )
+    }
+  }
+
+  const raw = await getCommitsSince(rangeStart, { cwd, paths: config.paths })
   const parsed = raw.map(parseCommit)
-  const filtered = filterCommits(parsed, {
-    includeTypes: config.includeTypes,
-    excludeTypes: config.excludeTypes,
-  })
+  const releaseCommit = releaseCommitPattern(config.releaseCommitMessage)
+  const filtered = filterCommits(
+    parsed.filter((c) => !releaseCommit.test(c.raw.subject)),
+    {
+      includeTypes: config.includeTypes,
+      excludeTypes: config.excludeTypes,
+    },
+  )
   return { previousVersion, lastTag, rawCommits: parsed, filteredCommits: filtered, warnings }
 }
 
 /**
- * Newest version recorded in versions.json, if that output is enabled and the
+ * Release commits are bookkeeping, not changes: never let one count toward
+ * the next release. Matches the configured template with any version in it.
+ */
+export function releaseCommitPattern(template: string): RegExp {
+  const escaped = template
+    .split('{version}')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\S+')
+  return new RegExp(`^${escaped}$`)
+}
+
+/**
+ * Newest entry recorded in versions.json, if that output is enabled and the
  * file holds a usable entry. This is the anchor of last resort when the repo
  * has no tags -- versions.json is written on every release, so it is the one
  * artifact guaranteed to reflect what was last shipped.
  */
-async function readVersionsJsonVersion(
+async function readVersionsJsonHead(
   cwd: string,
   config: ChangelogConfig,
-): Promise<string | null> {
+): Promise<VersionEntry | null> {
   if (!config.output.versionsJson) return null
   const versionsPath = resolveOutputPath(cwd, config.output.versionsJson.path)
   try {
     const file = await readVersionsFile(versionsPath)
     const head = file.versions[0]
-    return head && isValidSemver(head.version) ? head.version : null
+    return head && isValidSemver(head.version) ? head : null
   } catch {
     return null
   }

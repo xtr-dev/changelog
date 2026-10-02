@@ -28,6 +28,25 @@ export function parseCommit(raw: RawCommit): ParsedCommit {
   const isMerge = subject.startsWith('Merge ')
   const isRevert = /^revert[\s(:!]/i.test(subject)
 
+  // git's own revert subject: Revert "feat: thing". Not a conventional header,
+  // but it is a real change, so type it as a revert rather than dropping it.
+  const gitRevert = /^Revert "(?<inner>.+)"$/.exec(subject)
+  if (gitRevert) {
+    return {
+      raw,
+      type: 'revert',
+      scope: null,
+      description: subject,
+      body: raw.body.trim(),
+      breaking: false,
+      breakingReasons: [],
+      notes: [],
+      isMerge,
+      isRevert: true,
+      unconventional: false,
+    }
+  }
+
   const m = HEADER_RE.exec(subject)
   if (!m || !m.groups) {
     return {
@@ -118,12 +137,36 @@ function parseBody(body: string): { notes: CommitNote[]; trimmedBody: string } {
   return { notes: [], trimmedBody: body.trim() }
 }
 
-/** Filter helper: drop merge commits and types excluded by config. */
+/**
+ * Filter helper: cancel reverted pairs, then drop merge commits, unconventional
+ * commits, and types excluded by config.
+ */
 export interface FilterOptions {
   includeTypes: string[] | null
   excludeTypes: string[]
   dropMerges?: boolean
   dropUnconventional?: boolean
+}
+
+const REVERTS_RE = /This reverts commit (?<hash>[0-9a-f]{7,40})/
+
+/**
+ * Drop a commit and its revert when both fall in the same release: together
+ * they are no change at all. A revert of a commit that already shipped is
+ * kept, since it does change what users get.
+ */
+export function cancelReverts(commits: ParsedCommit[]): ParsedCommit[] {
+  const dropped = new Set<ParsedCommit>()
+  for (const revert of commits) {
+    if (!revert.isRevert) continue
+    const hash = REVERTS_RE.exec(revert.raw.body)?.groups?.hash
+    if (!hash) continue
+    const target = commits.find((c) => c !== revert && !dropped.has(c) && c.raw.hash.startsWith(hash))
+    if (!target) continue
+    dropped.add(target)
+    dropped.add(revert)
+  }
+  return dropped.size === 0 ? commits : commits.filter((c) => !dropped.has(c))
 }
 
 export function filterCommits(
@@ -132,7 +175,7 @@ export function filterCommits(
 ): ParsedCommit[] {
   const dropMerges = opts.dropMerges ?? true
   const dropUnconventional = opts.dropUnconventional ?? true
-  return commits.filter((c) => {
+  return cancelReverts(commits).filter((c) => {
     if (dropMerges && c.isMerge) return false
     if (dropUnconventional && c.unconventional) return false
     if (opts.includeTypes && !opts.includeTypes.includes(c.type)) return false

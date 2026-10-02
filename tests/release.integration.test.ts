@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -426,5 +426,33 @@ describe('release (integration)', () => {
     const r = await release({ cwd: repo.cwd, config: defaultConfig(), releaseAs: '1.0.0' })
     expect(r.released).toBe(true)
     expect(r.version).toBe('1.0.0')
+  })
+
+  it('releases one monorepo package from its own commits and tags', async () => {
+    const config: ChangelogConfig = {
+      ...defaultConfig(),
+      tagPrefix: 'pkg-a@v',
+      paths: ['packages/a'],
+    }
+    mkdirSync(join(repo.cwd, 'packages/a'), { recursive: true })
+    mkdirSync(join(repo.cwd, 'packages/b'), { recursive: true })
+    repo.commit('feat(a): add a', undefined, { path: 'packages/a/index.js', content: '1' })
+    repo.tag('pkg-a@v0.1.0')
+    repo.tag('pkg-b@v5.0.0')
+    repo.commit('feat(b): add b', undefined, { path: 'packages/b/index.js', content: '1' })
+    repo.commit('fix(a): fix a', undefined, { path: 'packages/a/index.js', content: '2' })
+
+    const r = await preview({ cwd: repo.cwd, config })
+    expect(r.previousVersion).toBe('0.1.0')
+    expect(r.version).toBe('0.1.1')
+    expect(r.commits.map((c) => c.description)).toEqual(['fix a'])
+
+    // The same, run from inside the package with paths relative to it.
+    const fromPackage = await preview({
+      cwd: join(repo.cwd, 'packages/a'),
+      config: { ...config, paths: ['.'] },
+    })
+    expect(fromPackage.version).toBe('0.1.1')
+    expect(fromPackage.commits.map((c) => c.description)).toEqual(['fix a'])
   })
 })

@@ -26,8 +26,7 @@ jobs:
         with:
           # Node 22, not 20: `npm@latest` is now npm 12, which requires
           # ^22.22.2 || ^24.15.0 || >=26.0.0, so installing it on Node 20 fails
-          # and takes the whole release with it. 22 is also the upper bound of
-          # the CI test matrix, so releases run on a version we actually test.
+          # and takes the whole release with it.
           node-version: 22
           registry-url: https://registry.npmjs.org
 
@@ -35,23 +34,57 @@ jobs:
       - run: npm i -g npm@latest
 
       - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
       - run: npm test
       - run: npm run build
 
-      # Dogfood: use the just-built CLI to release the package.
+      # Dogfood: use the just-built CLI to release the package. Commit and tag
+      # locally only; nothing leaves the runner until npm has the package.
       - id: release
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
 
-          OUT=$(node ./dist/cli.js release --execute --commit --tag --push --json)
+          OUT=$(node ./dist/cli.js release --tag --json)
           echo "$OUT"
-          RELEASED=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.released?'true':'false')" "$OUT")
-          VERSION=$(node -e "const j=JSON.parse(process.argv[1]); process.stdout.write(j.version||'')" "$OUT")
-          echo "released=$RELEASED" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          RESULT="$OUT" node -e '
+            const j = JSON.parse(process.env.RESULT)
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT,
+              `released=${j.released}\nversion=${j.version}\ntag=${j.git.tag ?? ""}\n`)
+          '
 
+      # Publish before pushing. If publishing fails, nothing was pushed and the
+      # next run cuts the same release again; pushing first would leave a tag
+      # for a version npm never got.
       - name: Publish to npm
         if: steps.release.outputs.released == 'true'
         run: npm publish --provenance --access public
+
+      - name: Push release commit and tag
+        if: steps.release.outputs.released == 'true'
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: git push --atomic --follow-tags origin "HEAD:$BRANCH"
+
+      # Keep a moving major tag (v0, v1, ...) on the latest release, so
+      # `uses: xtr-dev/changelog@v0` tracks it.
+      - name: Move major tag
+        if: steps.release.outputs.released == 'true'
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          MAJOR="v${VERSION%%.*}"
+          git tag -f "$MAJOR"
+          git push -f origin "refs/tags/$MAJOR"
+
+      - name: Create GitHub Release
+        if: steps.release.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          node ./dist/cli.js notes "$VERSION" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --verify-tag --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"

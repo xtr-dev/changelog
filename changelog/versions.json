@@ -3,6 +3,90 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.0.12",
+      "date": "2026-10-02",
+      "commit": "f0c7573",
+      "breaking": false,
+      "groups": {
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "release",
+            "description": "anchor the version on versions.json when no tag exists",
+            "commit": "f0c7573",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_01LxXxE6oFLxqHEWyrxQ9vr1"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "ci",
+            "description": "run releases on Node 22 so npm@latest installs",
+            "commit": "18011af",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_01LxXxE6oFLxqHEWyrxQ9vr1"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "release",
+            "description": "write each changelog section exactly once",
+            "commit": "1348bef",
+            "author": "Claude",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_01LxXxE6oFLxqHEWyrxQ9vr1"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "bump workflow actions to v6 and grant Claude jobs write scopes",
+            "commit": "9be79d5",
+            "author": "Bas van den Aakster",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Opus 5 (1M context) <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_017iUFQYFQ9mcVE6J22LessK"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.0.8",
       "date": "2026-05-10",
       "commit": "33b9bde",

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.12] - 2026-10-02
+
+### Fixes
+- **release:** anchor the version on versions.json when no tag exists (f0c7573)
+- **ci:** run releases on Node 22 so npm@latest installs (18011af)
+- **release:** write each changelog section exactly once (1348bef)
+
+### Other
+- bump workflow actions to v6 and grant Claude jobs write scopes (9be79d5)
+
 ## [0.0.8] - 2026-05-10
 
 ### Other

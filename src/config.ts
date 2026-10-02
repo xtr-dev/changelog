@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 
 import { getRemoteUrl } from './git.js'
 import { normalizeRepositoryUrl } from './repository.js'
+import { isValidSemver } from './semver.js'
 import type { BumpLevel, ChangelogConfig, GroupDef } from './types.js'
 
 export const DEFAULT_BUMP_MAP: Record<string, BumpLevel> = {
@@ -137,9 +138,11 @@ export function mergeConfig(
   base: ChangelogConfig,
   user: Partial<ChangelogConfig>,
 ): ChangelogConfig {
+  validateUserConfig(user)
+  const { $schema: _schema, ...rest } = user as Partial<ChangelogConfig> & { $schema?: string }
   const merged: ChangelogConfig = {
     ...base,
-    ...user,
+    ...rest,
     bumpMap: { ...base.bumpMap, ...(user.bumpMap ?? {}) },
     groups: user.groups ?? base.groups,
     output: {
@@ -161,10 +164,135 @@ export function mergeConfig(
   return merged
 }
 
-function validateConfig(c: ChangelogConfig): void {
-  if (!['semver', 'commit-count', 'custom'].includes(c.bumpMode)) {
-    throw new Error(`Invalid bumpMode: ${c.bumpMode}`)
+const LEVELS = ['major', 'minor', 'patch', 'none']
+const KNOWN_KEYS = new Set([
+  '$schema',
+  'bumpMode',
+  'customBump',
+  'initialVersion',
+  'prerelease',
+  'bumpMinorPreMajor',
+  'bumpMap',
+  'includeTypes',
+  'excludeTypes',
+  'groups',
+  'output',
+  'repositoryUrl',
+  'tagPrefix',
+  'releaseCommitMessage',
+  'paths',
+  'formatter',
+])
+const OUTPUT_KEYS: Record<string, string[]> = {
+  versionsJson: ['path', 'archivePath', 'archiveAfter'],
+  markdown: ['path', 'preamble'],
+  packageJson: ['path'],
+}
+
+/**
+ * Check a user config before it is merged, so typos and wrong types fail
+ * loudly instead of being silently ignored. Collects every problem.
+ */
+function validateUserConfig(user: unknown): void {
+  if (user === null || typeof user !== 'object' || Array.isArray(user)) {
+    throw new Error('Invalid config: expected an object')
   }
+  const u = user as Record<string, unknown>
+  const errors: string[] = []
+  const isStringArray = (v: unknown) => Array.isArray(v) && v.every((x) => typeof x === 'string')
+
+  for (const key of Object.keys(u)) {
+    if (!KNOWN_KEYS.has(key)) errors.push(`unknown key "${key}"`)
+  }
+  if ('bumpMode' in u && !['semver', 'commit-count', 'custom'].includes(u.bumpMode as string)) {
+    errors.push(`bumpMode must be 'semver', 'commit-count' or 'custom' (got ${JSON.stringify(u.bumpMode)})`)
+  }
+  if ('customBump' in u && typeof u.customBump !== 'function') errors.push('customBump must be a function')
+  if ('formatter' in u && typeof u.formatter !== 'function') errors.push('formatter must be a function')
+  if ('initialVersion' in u && (typeof u.initialVersion !== 'string' || !isValidSemver(u.initialVersion))) {
+    errors.push(`initialVersion must be a semver string (got ${JSON.stringify(u.initialVersion)})`)
+  }
+  if ('prerelease' in u && (typeof u.prerelease !== 'string' || !/^[0-9A-Za-z-]+$/.test(u.prerelease))) {
+    errors.push('prerelease must be an identifier like "beta" or "rc"')
+  }
+  if ('bumpMinorPreMajor' in u && typeof u.bumpMinorPreMajor !== 'boolean') {
+    errors.push('bumpMinorPreMajor must be a boolean')
+  }
+  for (const key of ['tagPrefix', 'releaseCommitMessage']) {
+    if (key in u && typeof u[key] !== 'string') errors.push(`${key} must be a string`)
+  }
+  if ('repositoryUrl' in u && u.repositoryUrl !== false && typeof u.repositoryUrl !== 'string') {
+    errors.push('repositoryUrl must be a string or false')
+  }
+  if ('paths' in u && !isStringArray(u.paths)) errors.push('paths must be an array of strings')
+  if ('includeTypes' in u && u.includeTypes !== null && !isStringArray(u.includeTypes)) {
+    errors.push('includeTypes must be an array of strings or null')
+  }
+  if ('excludeTypes' in u && !isStringArray(u.excludeTypes)) errors.push('excludeTypes must be an array of strings')
+  if ('bumpMap' in u) {
+    const map = u.bumpMap
+    if (!map || typeof map !== 'object' || Array.isArray(map)) {
+      errors.push('bumpMap must be an object of type → level')
+    } else {
+      for (const [type, level] of Object.entries(map)) {
+        if (!LEVELS.includes(level as string)) {
+          errors.push(`bumpMap.${type} must be one of ${LEVELS.join(', ')} (got ${JSON.stringify(level)})`)
+        }
+      }
+    }
+  }
+  if ('groups' in u) {
+    if (!Array.isArray(u.groups)) {
+      errors.push('groups must be an array')
+    } else {
+      u.groups.forEach((g: unknown, i: number) => {
+        const group = g as Partial<GroupDef> | null
+        if (!group || typeof group.title !== 'string' || typeof group.key !== 'string' || !isStringArray(group.types)) {
+          errors.push(`groups[${i}] must be { title: string, key: string, types: string[] }`)
+        }
+      })
+    }
+  }
+  if ('output' in u) {
+    const output = u.output as Record<string, unknown> | null
+    if (!output || typeof output !== 'object' || Array.isArray(output)) {
+      errors.push('output must be an object')
+    } else {
+      for (const [name, value] of Object.entries(output)) {
+        const fields = OUTPUT_KEYS[name]
+        if (!fields) {
+          errors.push(`unknown output "${name}"`)
+          continue
+        }
+        if (value === false) continue
+        if (!value || typeof value !== 'object') {
+          errors.push(`output.${name} must be an object or false`)
+          continue
+        }
+        const v = value as Record<string, unknown>
+        for (const k of Object.keys(v)) {
+          if (!fields.includes(k)) errors.push(`unknown key "output.${name}.${k}"`)
+        }
+        if (typeof v.path !== 'string') errors.push(`output.${name}.path must be a string`)
+        if (name === 'versionsJson') {
+          if (typeof v.archivePath !== 'string') errors.push('output.versionsJson.archivePath must be a string')
+          if (!Number.isInteger(v.archiveAfter) || (v.archiveAfter as number) < 1) {
+            errors.push('output.versionsJson.archiveAfter must be a positive integer')
+          }
+        }
+        if (name === 'markdown' && 'preamble' in v && typeof v.preamble !== 'string') {
+          errors.push('output.markdown.preamble must be a string')
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Invalid config:\n  - ${errors.join('\n  - ')}`)
+  }
+}
+
+function validateConfig(c: ChangelogConfig): void {
   if (c.bumpMode === 'custom' && typeof c.customBump !== 'function') {
     throw new Error("bumpMode='custom' requires a customBump function")
   }

@@ -138,8 +138,9 @@ function formatChangeLine(c: VersionEntryChange, repo: string | null, inBreaking
   const scope = c.scope ? `**${c.scope}:** ` : ''
   const breaking = c.breaking && !inBreaking ? ' ⚠️' : ''
   const description = repo ? linkIssues(c.description, repo) : c.description
-  const commit =
-    repo && c.hash ? `[${c.commit}](${repo}/commit/${c.hash})` : c.commit
+  // Entries written before full hashes were stored still link: hosts resolve
+  // an unambiguous short hash too.
+  const commit = repo ? `[${c.commit}](${repo}/commit/${c.hash ?? c.commit})` : c.commit
   let line = `${scope}${description}${breaking} (${commit})`
 
   const refs = (c.notes ?? [])

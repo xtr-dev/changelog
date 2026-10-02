@@ -170,6 +170,19 @@ export interface ReleaseInput {
   preid?: string
   /** Release exactly this version, even with no release-worthy commits. */
   releaseAs?: string
+  /**
+   * Git steps for `release` to run after writing files. Each implies the ones
+   * before it (push → tag → commit). The working tree must be clean.
+   */
+  git?: {
+    commit?: boolean
+    tag?: boolean
+    push?: boolean
+    /** Default 'origin'. */
+    remote?: string
+    /** Default: the current branch. */
+    branch?: string
+  }
 }
 
 export interface ReleaseResult {
@@ -189,4 +202,11 @@ export interface ReleaseResult {
    * to stderr; they never stop a release.
    */
   warnings: string[]
+  /** What `release` did in git. All false/null for `preview`. */
+  git: {
+    committed: boolean
+    /** The tag created, if any. */
+    tag: string | null
+    pushed: boolean
+  }
 }
